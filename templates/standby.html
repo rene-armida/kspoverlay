@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{%block title%} Please Stand By {% endblock%}
+
+{% block head %}
+<style type="text/css">
+body {
+	background-image: radial-gradient(slateblue, indigo);
+	text-align: center;
+	align-items: center;
+	vertical-align: middle;
+	font-family: "Monda", sans-serif;
+	font-optical-sizing: auto;
+	font-style: normal;
+	color: white;
+}
+
+#logoContainer {
+	display: inline-block;
+	background-image: url(static/rsa-logo-orbit-only.png);
+	background-size: cover;
+	position: relative;
+}
+
+#logoContainer img {
+	max-width:500px;
+	max-height:500px;
+	
+}
+
+/* HTML: <div class="triangle"></div> */
+.triangle {
+	position: absolute;
+	top: 300px;
+	left: 500px;
+  height: 150px;
+  aspect-ratio: 1/20;
+  clip-path: polygon(50% 0,100% 100%,0 100%);
+  background-color: #ffffff66;
+  -webkit-mask-image: url(static/rsa-logo-orbit-mask.png);
+  mask-repeat: no-repeat;
+  mask-size: cover;
+}
+</style>
+{% endblock %}
+
+{% block body %}
+	<div id="logoContainer">
+		<div class="triangle"></div>
+		<img id="logo" src="static/rsa-logo-no-orbit.png"/>
+	</div>
+	<h1>Please Stand By</h1>
+{% endblock %}

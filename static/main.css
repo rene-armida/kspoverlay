@@ -1,0 +1,16 @@
+:root {
+	--fieldlo: indigo;
+	--fieldhi: slateblue;
+}
+
+body {
+	font-family: "Monda", sans-serif;
+	font-optical-sizing: auto;
+	font-style: normal;
+	color: white;
+	background-color: var(--fieldlo);
+}
+
+a {
+	color: white;
+}

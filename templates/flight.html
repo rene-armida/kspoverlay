@@ -1,0 +1,320 @@
+{% extends "base.html" %}
+{% block title %}Directory{% endblock %}
+
+{% block head %}
+<style type="text/css">
+:root {
+	--overlay-bg-color: slateblue;
+	--stage-prev-color: lightgray;
+	--stage-cur-color: yellow;
+	--stage-next-color: paleturquoise;
+}
+
+.arrow {
+	--t: 15%; /* control the tail part */
+	--h: 12%; /* control the head part */
+
+	aspect-ratio: 1/10;
+	height: 74px;
+	background-image: linear-gradient(to bottom, 
+		var(--stage-prev-color),
+		var(--stage-cur-color), 
+		var(--stage-next-color));
+	clip-path: polygon(calc(50% - var(--t)/2) 0,calc(50% - var(--t)/2) calc(100% - var(--h)),0 calc(100% - var(--h)),50% 100%,100% calc(100% - var(--h)),calc(50% + var(--t)/2) calc(100% - var(--h)),calc(50% + var(--t)/2) 0);
+}
+
+#stageArrow {
+	position: relative;
+	top: 10px;
+	float: left;
+}
+
+.rhombus {
+  height: 15px; /* adjust to control the size  */
+  aspect-ratio: 1;
+  clip-path: polygon(50% 0,100% 50%,50% 100%,0 50%);
+  background: var(--stage-cur-color);
+}
+
+#stageArrow .rhombus {
+	position: absolute;
+	top: 29px;
+	left: -3px;
+}
+
+fieldset {
+	display: inline-block;
+	border: 0;
+}
+
+body {
+	font-family: "Monda", sans-serif;
+	font-optical-sizing: auto;
+	font-style: normal;
+	color: white;
+}
+
+#controls {
+	background-color: dimgray;
+	color: white;
+	z-index: 1;
+	position: relative;
+}
+
+#main {
+	{% if scale %}
+	transform: scale({{ scale }});
+	transform-origin: top left;
+	{% endif %}
+	position: relative;
+	width:1920px;
+	height:1080px;
+	background-size: cover;
+	background-color: dimgray;
+}
+
+.b1 {
+	background-image: url(/static/flight-dark.png);
+}
+
+.b2 {
+	background-image: url(/static/flight-light.png);
+}
+
+.b3 {
+	background-image: url(/static/map-dark.png);
+}
+
+#logo {
+	background-image: url("/static/rsa-logo.png");
+	background-position: 15px 5px;
+	background-size: 150px 150px;
+	background-repeat: no-repeat;
+	width: 150px;
+	height: 150px;
+	position: absolute;
+	left: 1162px;
+	top: -10px;
+}
+
+#missionInfoTriangle {
+	width: 0;
+	height: 0;
+	border-top: 90px solid var(--overlay-bg-color);
+	border-left: 31px solid transparent;
+	left: 1324px;
+	position: absolute;
+	display: none;
+}
+
+#missionInfo {
+	position: absolute;
+	left: 1355px;
+	top: -20px;
+	width: 250px;
+	height: 155px;
+	border-radius: 20px;
+	border: 6px solid var(--overlay-bg-color);
+	padding: 15px;
+	background-color: var(--overlay-bg-color);
+}
+
+#missionInfo h1 {
+	border-radius: 4px;
+	font-weight: 800;
+	font-size: 24px;
+	margin: 0;
+}
+ 
+#chrono #date {
+	float: right;
+}
+
+#camFrame {
+	position: absolute;
+	width: 450px;
+	height: 450px;
+	right: 25px;
+	bottom: 25px;
+	border: 6px solid var(--overlay-bg-color);
+	border-radius: 20px;
+}
+
+#camFrame img { 
+	object-fit: cover;
+	max-width: 450px;
+	max-height: 450px;
+}
+
+#camTriangle {
+	position: absolute;
+	width: 0;
+	height: 0;
+	right: 0;
+	bottom: 0;
+	border-bottom: 400px solid var(--overlay-bg-color);
+	border-left: 400px solid transparent;
+}
+
+#missionStage {
+	position: relative;
+	list-style-type: none;
+	margin-top: 8px;
+	margin-bottom: 0;
+}
+
+#prevStage {
+	color: var(--stage-prev-color);
+	position: relative;
+	right: 20px;
+}
+
+#curStage {
+	position: relative;
+	right: 10px;
+	color: var(--stage-cur-color);
+}
+
+#nextStage {
+	color: var(--stage-next-color);
+}
+</style>
+
+<script language="javascript">
+const stageList = [
+	"Launch Components",
+	"Refuel Freighter",
+	"Ejection Burn",
+	"Correction Burn(s)",
+	"Gateway Encounter",
+];
+const curStageIdx = 2;
+
+
+const changeScene = () => {
+	const scene = document.getElementById("sceneSelect").value;
+	const mainElem = document.getElementById("main");
+	
+	const bgImageClasses = ["b1", "b2", "b3"];
+	const cl = document.getElementById("main").classList;
+	bgImageClasses.forEach( (className) => { 
+		cl.remove(className);
+	});
+	cl.add(scene);
+}
+
+const changeSpan = (event, target) => {
+	target.textContent = event.srcElement.value;
+}
+
+const changeCurStage = (stageIdx) => {
+	stageIdx = parseInt(stageIdx);
+	const prevElem = document.getElementById("prevStage");
+	const curElem = document.getElementById("curStage");
+	const nextElem = document.getElementById("nextStage");
+
+	if(stageIdx > 0) {
+		prevElem.textContent = stageList[stageIdx-1];
+	}
+	if(stageIdx == 0) {
+		prevElem.textContent = "";
+	}
+	curElem.textContent = stageList[stageIdx];
+	if(stageIdx < stageList.length) {
+		nextElem.textContent = stageList[stageIdx+1];
+	}
+	if(stageIdx == stageList.length - 1) {
+		nextElem.textContent = "";
+	}
+}
+
+window.addEventListener("load", (event) => {
+	changeScene();
+	changeCurStage(2);
+
+	document.getElementById("sceneSelect").addEventListener("change", (event) => {
+    	changeScene();
+	});
+	document.getElementById("stageSelect").addEventListener("change", (event) => {
+    	changeCurStage(event.srcElement.value);
+	});
+
+	document.querySelector("input[name='met']")
+		.addEventListener("change", (event) => {
+			changeSpan(event, document.getElementById("missionET"))
+		});
+	document.querySelector("input[name='date']")
+		.addEventListener("change", (event) => {
+			changeSpan(event, document.getElementById("date"))
+		});
+	document.querySelector("input[name='vessel']")
+		.addEventListener("change", (event) => {
+			changeSpan(event, document.getElementById("vesselName"))
+		});
+});
+</script>
+{% endblock %}
+
+{% block body %}
+<div id="controls">
+		<fieldset>
+			<label>Scene</label>
+			<select id="sceneSelect" name="scene">
+				<option value="b1">Dark</option>
+				<option value="b2">Light</option>
+				<option value="b3">Map</option>
+			</select>
+		</fieldset>
+
+		<fieldset>
+			<label>Vessel</label>
+			<input name="vessel" type="text" value="Lond III"/>
+		</fieldset>
+
+		<fieldset>
+			<label>MET</label>
+			<input name="met" type="text" value="T+ 106Y 229D"/>
+		</fieldset>
+
+		<fieldset>
+			<label>Date</label>
+			<input name="date" type="text" value="Y450 D340"/>
+		</fieldset>
+		
+		<fieldset>
+			<label>Stage</label>
+			<select id="stageSelect" name="stageIdx">
+				<option value="0">0</option>
+				<option value="1">1</option>
+				<option value="2">2</option>
+				<option value="3">3</option>
+				<option value="4">4</option>
+			</select>
+		</fieldset>
+	</div>
+	<div id="main">
+		<div id="logo"></div>
+		<div id="missionInfoTriangle"></div>
+		<div id="missionInfo">
+			<h1 id="vesselName">Lond III</h1>
+			<div id="chrono">
+				<span id="missionET">T+ 106Y 229D</span>
+				<span id="date">Y450 D340</span>
+			</div>
+			<div id="stageArrow">
+				<div class="arrow"></div>
+				<div class="rhombus" id="activeStage"></div>
+			</div>
+				
+			<ol id="missionStage">
+				<li id="prevStage"></li>
+				<li id="curStage"></li>
+				<li id="nextStage"></li>
+			</ol>
+		</div>
+		<div id="camTriangle"></div>
+		<div id="camFrame">
+			<img src="cam-placeholder.png"/>
+		</div>
+	</div>
+{% endblock %}
