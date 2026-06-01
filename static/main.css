@@ -1,6 +1,7 @@
 :root {
 	--fieldlo: indigo;
 	--fieldhi: slateblue;
+	--fieldcontrast: dimgray;
 }
 
 body {
@@ -13,4 +14,14 @@ body {
 
 a {
 	color: white;
+}
+
+.nav {
+	background-color: var(--fieldcontrast);
+	list-style-type: none;
+}
+
+.nav li {
+	display: inline-block;
+	padding: 5px;
 }

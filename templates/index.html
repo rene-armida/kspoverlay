@@ -3,10 +3,23 @@
 
 {% block body %}
 
-<ul>
+<ul class="nav">
 	<li><a href="/flight">flight overlay</a></li>
 	<li><a href="/standby">standby card</a></li>
-	<li><a href="/status">vessel status debug view</a></li>
 </ul>
+
+<h1>Flight Data</h1>
+<h3>UT {{ ut | ktimetos }}</h3>
+
+<ol id="missionList">
+{% foreach mission in missions %}
+<li>
+	<h2>{{ mission.name }}</h2>
+	<h3>{{ mission.start || ktime }} <span>{{ ut - mission.start || kinterval}}</span></h3>
+	<p>Pri {{ mission.priority }}</p>
+	<p>Last update {{ ut - mission.last_update | kinterval }}</p>
+</li>
+{% endfor %}
+</ol>
 
 {% endblock %}
