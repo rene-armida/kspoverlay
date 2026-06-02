@@ -2,32 +2,46 @@ from flask import Flask, render_template, redirect, request
 
 app = Flask(__name__)
 
-class KTimestamp:
+class KTimeParts:
     HOURS_PER_DAY = 6
     DAYS_PER_YEAR = 426
     SECS_PER_DAY = 60*60*HOURS_PER_DAY
     SECS_PER_YEAR = 60*60*HOURS_PER_DAY*DAYS_PER_YEAR
 
+    def __init__(self, timestamp):
+        self.year = (timestamp // self.SECS_PER_YEAR)
+        leftover = timestamp % self.SECS_PER_YEAR
+
+        self.day = leftover // self.SECS_PER_DAY
+        leftover = leftover % self.SECS_PER_DAY
+
+        self.hour = leftover // (60 * 60)
+        leftover = leftover % (60 * 60)
+
+        self.minute = leftover // 60
+
+        self.second = leftover % 60
+
+class KTimestamp:
     def __init__(self, time):
         self.time = time
 
-    def as_datetime(self, separator=''):
-        year = self.time // self.SECS_PER_YEAR
-        leftover = self.time % self.SECS_PER_YEAR
-        day = leftover // self.SECS_PER_DAY
+    def as_datetime(self, separator=' '):
+        timeparts = KTimeParts(self.time)
+        timeparts.year += 1 # year starts at 1
+        timeparts.day += 1 # same for day
+        return f'Y{timeparts.year}D{timeparts.day:03}{separator}{timeparts.hour:01}:{timeparts.minute:02}:{timeparts.second:02}'
 
-        leftover = leftover % self.SECS_PER_DAY
-        hour = leftover // 60 * 60
+    def __sub(self, other):
+        return KTimestamp(self.time - other.time)
 
-        leftover = leftover % (60 * 60)
-        minute = leftover // 60
-
-        second = leftover % 60
-
-        return f'Y{year}{separator}D{day:000} {hour:00}:{minute:00}:{second:00}'
-
-    def as_interval(self, separator=''):
-        return ''
+    def as_interval(self, separator=' '):
+        timeparts = KTimeParts(self.time)
+        if timeparts.year > 0:
+            return f'{timeparts.year}Y{separator}{timeparts.day}D{separator}{timeparts.hour:01}H'
+        if timeparts.day > 0:
+            return f'{timeparts.day}D{separator}{timeparts.hour:01}:{timeparts.minute:02}:{timeparts.second:02}'
+        return f'{timeparts.hour:01}:{timeparts.minute:02}:{timeparts.second:02}'
 
 @app.template_filter()
 def ktime(tval):
@@ -46,6 +60,7 @@ def standby():
 def flight():
     args = {
         'ut': 14322,
+        'clock': 'run',
         'missions': {
             'name': "Lond III",
             'priority': 10,
