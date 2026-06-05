@@ -2,6 +2,7 @@ import dataset
 from sqlalchemy.orm import DeclarativeBase
 from flask import current_app, g
 
+from re import fullmatch
 from uuid import uuid4
 
 
@@ -117,11 +118,28 @@ class Mission(Model):
         'last_update': KTimestamp,
     }
 
-class Matcher:
-    TABLENAME = 'matcher'
+
+class SOIMatcher(Model):
+    TABLENAME = 'soi_matcher'
+    # has: mission_id, soi name
 
     def match(self, update):
-        # default implementation is to match everything
-        return True
+        return update.soi_name == self["soi_name"]
 
+
+class VesselMatcher(Model):
+    TABLENAME = 'vessel_matcher'
+    # has: mission_id, vessel
+
+    def match(self, update):
+        return bool(fullmatch(self["vessel"], update.vessel_name))
+
+
+class Update:
+    '''
+    Ephemeral data sent from the game with latest info on the scene.
+    '''
+    def __init__(self, vessel_name, soi_name):
+        self.vessel_name = vessel_name
+        self.soi_name = soi_name
 

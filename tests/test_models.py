@@ -73,7 +73,6 @@ def test_FilterDict():
 	# assert ['abcdef', 'x'] == list(fd.values())
 
 def test_Mission(app_ctx):
-	db = models.get_db()
 	m1 = models.Mission({"name": "M1", "start": 123, "last_update": 125, "mission_priority": 10})
 	m1.save()
 
@@ -82,3 +81,26 @@ def test_Mission(app_ctx):
 	assert m1["start"].as_datetime() == "Y1D001 0:02:03"
 	assert m1["last_update"].as_datetime() == "Y1D001 0:02:05"
 	assert m1["mission_priority"] == 10
+
+def test_SOIMatcher(app_ctx):
+	s1 = models.SOIMatcher({"soi_name": "Kerbin"})
+	assert s1.match(models.Update("t", "Kerbin"))
+	assert not s1.match(models.Update("t", "Duna"))
+	s1.save()
+
+	s2 = models.SOIMatcher({"soi_name": "Eeloo"})
+	s2.save()
+
+	u = models.Update("t", "Dres")
+	assert not any(
+		soi_matcher.match(u) for soi_matcher in models.SOIMatcher.iter_all())
+
+
+def test_VesselMatcher(app_ctx):
+	v1 = models.VesselMatcher({"vessel": "Launch.*"})
+	assert v1.match(models.Update("Launch Debris", "Kerbin"))
+	assert not v1.match(models.Update("Station", "Duna"))
+	
+	u = models.Update("t", "Dres")
+	assert not any(
+		soi_matcher.match(u) for soi_matcher in models.SOIMatcher.iter_all())
