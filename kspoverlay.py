@@ -3,7 +3,6 @@ from models import *
 
 app = Flask(__name__)
 
-
 @app.template_filter()
 def ktime(tval):
     return 
@@ -32,3 +31,32 @@ def flight():
     if 'scale' in request.args:
         args['scale'] = request.args['scale']
     return render_template('flight.html', **args)
+
+@app.route("/matcher")
+def matcher_list():
+    return {
+        'matcher': [
+            matcher.as_dict() for matcher in Matcher.iter_all()
+        ],
+    }
+
+@app.route("/mission")
+def mission_list():
+    return {
+        'mission': [
+            mission.as_dict() for mission in Mission.iter_all()
+        ], 
+    }
+    
+@app.route("/mission", methods=["POST"])
+def mission_post():
+    m = Mission.from_dict(request.json)
+    m.save()
+    return redirect(f'/mission/{m.id}')    
+
+@app.route("/mission/<int:id>", methods=["PUT"])
+def mission_put():
+    Mission.from_dict(request.json()).save()
+
+
+
