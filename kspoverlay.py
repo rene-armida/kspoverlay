@@ -3,10 +3,17 @@ from models import *
 
 app = Flask(__name__)
 
+# template filters
+
 @app.template_filter()
 def ktime(tval):
-    return 
+    return KTimestamp(tval).as_datetime()
 
+@app.template_filter()
+def kinterval(tval):
+    return KTimestamp(tval).as_interval()
+
+# routes
 
 @app.route("/")
 def index():
@@ -34,29 +41,40 @@ def flight():
 
 @app.route("/matcher")
 def matcher_list():
-    return {
-        'matcher': [
-            matcher.as_dict() for matcher in Matcher.iter_all()
-        ],
-    }
+    return [matcher.as_dict() for matcher in Matcher.iter_all()]
 
 @app.route("/mission")
 def mission_list():
-    return {
-        'mission': [
-            mission.as_dict() for mission in Mission.iter_all()
-        ], 
-    }
-    
+    return [mission.as_dict() for mission in Mission.iter_all()]
+
 @app.route("/mission", methods=["POST"])
 def mission_post():
-    m = Mission.from_dict(request.json)
-    m.save()
-    return redirect(f'/mission/{m.id}')    
+    Mission(request.json).save()
+    m = Mission.find_one(name=request.json['name'])
+    return redirect(f'/mission/{m["id"]}')
 
-@app.route("/mission/<int:id>", methods=["PUT"])
-def mission_put():
+@app.route("/mission/<mission_uuid>", methods=["GET"])
+def mission_get(mission_uuid):
+    mission = Mission.find_one(uuid=mission_uuid)
+    if not mission:
+        return '', 404
+    mission = mission.as_dict()
+    #mission['url'] = f"/mission/{mission['uuid']}"
+    return mission
+
+@app.route("/mission/<mission_uuid>", methods=["PUT"])
+def mission_put(mission_uuid):
     Mission.from_dict(request.json()).save()
 
+@app.route("/update", methods=["POST"])
+def update_post():
+    update = Update(**request.json)
+    for matcher in Matcher.iter_all():
+        if matcher.match(update):
+            mission = Mission.find_one(uuid=matcher["mission_uuid"])
+            mission["last_update"] = update.in_game_time
+            mission.save()
+            return redirect(f"/mission/{matcher['mission_uuid']}") # break loop
 
-
+    # didn't match any missions, let the client know
+    return ('', 202)

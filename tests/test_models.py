@@ -27,6 +27,10 @@ def test_KTimestamp_asdatetime_separator():
 	ts = models.KTimestamp(1)
 	assert ts.as_datetime(separator='|') == 'Y1D001|0:00:01'
 
+def test_KTimestamp_sub():
+	t1 = models.KTimestamp(100) - models.KTimestamp(40)
+	assert t1.time == 60
+
 @pytest.mark.parametrize(
 	"test_input,expected",
 	[
@@ -73,34 +77,49 @@ def test_FilterDict():
 	# assert ['abcdef', 'x'] == list(fd.values())
 
 def test_Mission(app_ctx):
-	m1 = models.Mission({"name": "M1", "start": 123, "last_update": 125, "mission_priority": 10})
+	m1 = models.Mission({"name": "M1", "start": 123, "last_update": 125})
 	m1.save()
 
 	m1 = models.Mission.find_one(name="M1")
 	assert m1["name"] == "M1"
 	assert m1["start"].as_datetime() == "Y1D001 0:02:03"
 	assert m1["last_update"].as_datetime() == "Y1D001 0:02:05"
-	assert m1["mission_priority"] == 10
 
-def test_SOIMatcher(app_ctx):
-	s1 = models.SOIMatcher({"soi_name": "Kerbin"})
+def test_Mission_asdict(app_ctx):
+	m1 = models.Mission({"name": "M1", "start": 123, "last_update": 125})
+	m1.save()
+
+	m1 = models.Mission.find_one(name='M1')
+	actual = m1.as_dict()
+	del actual['id'] # ignore value of generated id
+	assert {
+		'uuid': m1['uuid'],
+		'type': 'mission',
+		'url': f'/mission/{m1["uuid"]}',
+		'name': 'M1',
+		'start': 'Y1D001 0:02:03',
+		'last_update': 'Y1D001 0:02:05',
+		'mission_elapsed_time': '0:00:02',
+	} == actual
+
+def test_soi_matcher(app_ctx):
+	s1 = models.Matcher({"soi_name": "Kerbin"})
 	assert s1.match(models.Update("t", "Kerbin"))
 	assert not s1.match(models.Update("t", "Duna"))
 	s1.save()
 
-	s2 = models.SOIMatcher({"soi_name": "Eeloo"})
+	s2 = models.Matcher({"soi_name": "Eeloo"})
 	s2.save()
 
 	u = models.Update("t", "Dres")
 	assert not any(
-		soi_matcher.match(u) for soi_matcher in models.SOIMatcher.iter_all())
-
+		matcher.match(u) for matcher in models.Matcher.iter_all())
 
 def test_VesselMatcher(app_ctx):
-	v1 = models.VesselMatcher({"vessel": "Launch.*"})
+	v1 = models.Matcher({"vessel": "Launch.*"})
 	assert v1.match(models.Update("Launch Debris", "Kerbin"))
 	assert not v1.match(models.Update("Station", "Duna"))
 	
 	u = models.Update("t", "Dres")
 	assert not any(
-		soi_matcher.match(u) for soi_matcher in models.SOIMatcher.iter_all())
+		matcher.match(u) for matcher in models.Matcher.iter_all())

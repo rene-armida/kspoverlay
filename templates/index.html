@@ -9,13 +9,13 @@
 </ul>
 
 <h1>Flight Data</h1>
-<h3>UT {{ ut | ktimetos }}</h3>
+<h3>UT {{ ut | ktime }}</h3>
 
 <ol id="missionList">
-{% foreach mission in missions %}
+{% for mission in missions %}
 <li>
 	<h2>{{ mission.name }}</h2>
-	<h3>{{ mission.start || ktime }} <span>{{ ut - mission.start || kinterval}}</span></h3>
+	<h3>{{ mission.start | ktime }} <span>{{ ut - mission.start | kinterval}}</span></h3>
 	<p>Pri {{ mission.priority }}</p>
 	<p>Last update {{ ut - mission.last_update | kinterval }}</p>
 </li>

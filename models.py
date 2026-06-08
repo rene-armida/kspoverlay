@@ -2,12 +2,13 @@ import dataset
 from sqlalchemy.orm import DeclarativeBase
 from flask import current_app, g
 
+from itertools import chain
 from re import fullmatch
 from uuid import uuid4
 
 
-def get_db():
-    if 'db' not in g:
+def get_db(reset=False):
+    if reset or 'db' not in g:
         g.db = dataset.connect('sqlite:///:memory:')
     return g.db
 
@@ -33,6 +34,8 @@ class KTimeParts:
 
 class KTimestamp:
     def __init__(self, time):
+        if time is None:
+            raise ValueError
         self.time = time
 
     def as_datetime(self, separator=' '):
@@ -41,8 +44,14 @@ class KTimestamp:
         timeparts.day += 1 # same for day
         return f'Y{timeparts.year}D{timeparts.day:03}{separator}{timeparts.hour:01}:{timeparts.minute:02}:{timeparts.second:02}'
 
-    def __sub(self, other):
+    def __sub__(self, other):
         return KTimestamp(self.time - other.time)
+
+    def __eq__(self, other):
+        return self.time == other.time
+
+    def __lt__(self, other):
+        return self.time < other.time
 
     def as_interval(self, separator=' '):
         timeparts = KTimeParts(self.time)
@@ -63,9 +72,7 @@ class FilterDict:
         return x
 
     def __getitem__(self, key):
-        if key in self._FIELDS:
-            return self._FIELDS[key](self._obj[key])
-        return self._obj[key]
+        return self._FIELDS.get(key, self.__idfn)(self._obj[key])
 
     def __setitem__(self, key, val):
         self._obj[key] = val
@@ -92,12 +99,28 @@ class FilterDict:
     def update(self, other):
         return self._obj.update(other)
 
+    def items(self):
+        for key, val in self._obj.items():
+            yield (key, self._FIELDS.get(key, self.__idfn)(val))
+
+    def __delitem__(self, key):
+        del self._obj[key]
+
 
 class Model(FilterDict):
+
+    def __init__(self, obj):
+        '''
+        ensure ID creation
+        '''
+        super().__init__(obj)
+        if 'uuid' not in self._obj:
+            self._obj['uuid'] = str(uuid4())
+
     @classmethod
-    def iter_all(cls):
+    def iter_all(cls, **kwargs):
         db = get_db()
-        return (cls(i) for i in db[cls.TABLENAME].all())
+        return (cls(i) for i in db[cls.TABLENAME].all(**kwargs))
 
     @classmethod
     def find_one(cls, **kwargs):
@@ -106,40 +129,80 @@ class Model(FilterDict):
 
     def save(self):
         db = get_db()
-        if self._obj.get("id"):
-            db[self.TABLENAME].update(self._obj, ["id"])
-        else:
-            db[self.TABLENAME].insert(self._obj)
+        db[self.TABLENAME].upsert(self._obj, ["uuid"])
+
+    @staticmethod
+    def _serializable(val):
+        if isinstance(val, KTimestamp):
+            return val.as_datetime()
+        return val
+
+    def as_dict(self):
+        '''
+        turn into a dict with all contents serializable for JSON
+        '''
+        val = {k: self._serializable(v) for k, v in self.items()}
+        val['type'] = self._get_type_name()
+        val['url'] = f'/{self._get_type_name()}/{self["uuid"]}'
+        return val
 
 class Mission(Model):
     TABLENAME = 'mission'
+
+    @staticmethod
+    def _timestamp_or_none(val):
+        if val is None:
+            return None
+        return KTimestamp(val)
+
+
     _FIELDS = {
-        'start': KTimestamp,
-        'last_update': KTimestamp,
+        'start': _timestamp_or_none,
+        'last_update': _timestamp_or_none,
     }
 
+    @classmethod
+    def by_last_update(cls):
+        return cls.iter_all(order_by='-last_update')
 
-class SOIMatcher(Model):
-    TABLENAME = 'soi_matcher'
-    # has: mission_id, soi name
+    def as_dict(self):
+        d = super().as_dict()
+        if all(self._obj.get(x) for x in ['last_update', 'start']):
+            d['mission_elapsed_time'] = (self['last_update'] - self['start']).as_interval()
+        else:
+            d['mission_elapsed_time'] = None
+        return d
+
+    def _get_type_name(self):
+        return 'mission'
+
+class Matcher(Model):
+    TABLENAME = 'matcher'
+    # has: mission_id, vessel_name, soi_name
 
     def match(self, update):
-        return update.soi_name == self["soi_name"]
+        is_match = True # require all present filters to match
+        if self._obj.get('vessel'):
+            is_match = is_match and bool(fullmatch(self["vessel"], update.vessel_name))
+        if self._obj.get("soi_name"):
+            is_match = is_match and (update.soi_name == self["soi_name"])
+        return is_match
 
+    def _get_type_name(self):
+        return 'matcher'
 
-class VesselMatcher(Model):
-    TABLENAME = 'vessel_matcher'
-    # has: mission_id, vessel
-
-    def match(self, update):
-        return bool(fullmatch(self["vessel"], update.vessel_name))
-
+    @classmethod
+    def iter_all(cls, **kwargs):
+        if 'order_by' not in kwargs:
+            kwargs['order_by'] = 'priority'
+        return super().iter_all(**kwargs)
 
 class Update:
     '''
     Ephemeral data sent from the game with latest info on the scene.
     '''
-    def __init__(self, vessel_name, soi_name):
+    def __init__(self, vessel_name=None, soi_name=None, in_game_time=None):
         self.vessel_name = vessel_name
         self.soi_name = soi_name
+        self.in_game_time = in_game_time
 
