@@ -1,6 +1,5 @@
 #!/bin/bash
 
-
 LOCAL_IP="$(ipconfig getifaddr en0)"
 BIND="$LOCAL_IP:8000"
 

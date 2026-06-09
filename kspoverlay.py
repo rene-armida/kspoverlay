@@ -1,7 +1,11 @@
+import tomllib
+
 from flask import Flask, render_template, redirect, request
 from models import *
 
 app = Flask(__name__)
+# load config, let exceptions propagate
+app.config.from_file("config.toml", load=tomllib.load, text=False)
 
 # template filters
 

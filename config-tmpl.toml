@@ -1,0 +1,4 @@
+# config template
+
+db_file = ":memory:"
+# db_file = db.sqlite
