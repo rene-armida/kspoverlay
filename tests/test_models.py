@@ -68,14 +68,6 @@ def test_FilterDict():
 	fd.setdefault('num2', 5)
 	assert fd['num2'] == 25
 
-	# class StringCatDict(models.FilterDict):
-	# 	_FIELDS = {
-	# 		'abc': lambda x: x + 'def',
-	# 	}
-	# v2 = {'abc': 'abc', 'x': 'x'}
-	# fd = StringCatDict(v2)
-	# assert ['abcdef', 'x'] == list(fd.values())
-
 def test_Mission(app_ctx):
 	m1 = models.Mission({"name": "M1", "start": 123, "last_update": 125})
 	m1.save()
