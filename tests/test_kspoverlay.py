@@ -1,7 +1,7 @@
 from models import KTimestamp, Mission, Matcher, get_db
 from kspoverlay import app
 
-from pytest import fixture 
+from pytest import fixture, mark
 
 @fixture(name="app_ctx")
 def get_app_and_fresh_db():
@@ -54,6 +54,52 @@ def test_mission_get(app_ctx):
 	assert m.as_dict() == client.get(f"/mission/{m['uuid']}").json
 
 
+def test_post_update_not_json(app_ctx):
+	client = app.test_client()
+	resp = client.post("/update", "blah")
+	assert resp.status_code == 400
+
+def test_post_update_bad_structure(app_ctx):
+	client = app.test_client()
+	resp = client.post(
+		"/update",
+		json={
+			"date": '2026-07-03T21:25:56.778929+00:00',
+			"status": "meep", # bad status value
+			"data": {
+				"in_game_time": 121,
+				"soi_name": "Kerbin",
+				"vessel_name": "Stayputnik",
+			}
+		}
+	)
+	assert resp.status_code == 400
+
+	resp = client.post(
+		"/update",
+		json={"woop": "abc"} # missing expected keys
+	)
+	assert resp.status_code == 400
+
+@mark.xfail
+def test_post_update_unexpected_game_data(app_ctx):
+	'''
+	not implemented - unexpected game data keys are ignored
+	'''
+	client = app_ctx.test_client()
+	resp = client.post(
+		"/update",
+		json={
+			"date": '2026-07-03T21:25:56.778929+00:00',
+			"status": "flight",
+			"data": {
+				"derp": 121, #unexpected game data key
+			}
+		}
+	)
+	assert resp.status_code == 400
+
+
 def test_post_update(app_ctx):
 	m1 = Mission({"name": "m1"})
 	m1.save()
@@ -72,19 +118,27 @@ def test_post_update(app_ctx):
 	resp = client.post(
 		"/update",
 		json={
-			"in_game_time": 121,
-			"soi_name": "Kerbin",
-			"vessel_name": "Stayputnik",
+			"date": '2026-07-03T21:25:56.778929+00:00',
+			"status": "flight",
+			"data": {
+				"InGameTime": 121.183,
+				"BodyName": "Kerbin",
+				"VesselName": "Stayputnik",
+			}
 		}
 	)
-	assert resp.status_code == 202 # ignored
+	assert resp.status_code == 202, resp.text # ignored
 
 	resp = client.post(
 		"/update",
 		json={
-			"in_game_time": 122,
-			"soi_name": "Kerbin",
-			"vessel_name": "Freighter Alpha Debris",
+			"date": '2026-07-03T21:25:56.778929+00:00',
+			"status": "flight",
+			"data": {
+				"InGameTime": 122.1,
+				"BodyName": "Kerbin",
+				"VesselName": "Freighter Alpha Debris",
+			}
 		}
 	)
 	assert resp.status_code == 302
@@ -94,14 +148,18 @@ def test_post_update(app_ctx):
 	resp = client.post(
 		"/update",
 		json={
-			"in_game_time": 123,
-			"soi_name": "Gateway",
-			"vessel_name": "Merced",
+			"date": '2026-07-03T21:25:56.778929+00:00',
+			"status": "flight",
+			"data": {
+				"InGameTime": 123.1,
+				"BodyName": "Gateway",
+				"VesselName": "Merced",
+			}
 		}
 	)
 	assert resp.status_code == 302
 	# let's follow the response to verify name
 	assert "m2" == client.get(resp.location).json["name"]
 
-	assert Mission.find_one(name="m1")["last_update"] == KTimestamp(122)
-	assert Mission.find_one(name="m2")["last_update"] == KTimestamp(123)
+	assert Mission.find_one(name="m1")["last_update"] == KTimestamp(122.1)
+	assert Mission.find_one(name="m2")["last_update"] == KTimestamp(123.1)

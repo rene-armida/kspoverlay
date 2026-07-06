@@ -2,6 +2,8 @@ import dataset
 from sqlalchemy.orm import DeclarativeBase
 from flask import current_app, g
 
+from datetime import datetime
+from enum import Enum
 from itertools import chain
 from re import fullmatch
 from uuid import uuid4
@@ -197,12 +199,67 @@ class Matcher(Model):
             kwargs['order_by'] = 'priority'
         return super().iter_all(**kwargs)
 
+class GameStatus(Enum):
+    FLIGHT = 'flight'
+    PAUSED_FLIGHT = 'paused-flight'
+    SPACE_CENTER = 'space-center'
+    VAB = 'vehicle-assembly'
+    SPH = 'spaceplane-hangar'
+    MISSION_CONTROL = 'mission-control'
+    ADMINISTRATION = 'administration'
+    TRACKING_STATION = 'tracking-station'
+    ASTRONAUT_COMPLEX = 'astronaut-complex'
+    RESEARCH_DEVELOPMENT = 'research-development'
+
+def GameStatus_or_none(val):
+    return val and GameStatus(val) or None
+
+def string_or_none(val):
+    return val and str(val) or None
+
+def float_or_none(val):
+    return val and float(val) or None
+
 class Update:
     '''
     Ephemeral data sent from the game with latest info on the scene.
     '''
-    def __init__(self, vessel_name=None, soi_name=None, in_game_time=None):
-        self.vessel_name = vessel_name
-        self.soi_name = soi_name
-        self.in_game_time = in_game_time
+    ATTRS = [
+        ('irl_time', datetime.fromisoformat),
+        ('game_status', GameStatus_or_none),
+        ('in_game_time', float_or_none),
+        ('vessel_name', string_or_none),
+        ('soi_name', string_or_none),
+        ('dv_last_stage', float_or_none),
+        ('altitude_sea_level', float_or_none),
+        ('altitude_terrain', float_or_none),
+        ('velocity', float_or_none),
+        ('velocity_h', float_or_none),
+        ('velocity_v', float_or_none),
+        ('roll', float_or_none),
+        ('pitch', float_or_none),
+        ('heading', float_or_none),
+    ]
+
+    def __init__(self, **kwargs):
+        for attrname, typefunc in self.ATTRS:
+            try:
+                setattr(self, attrname, typefunc(kwargs.get(attrname)))
+            except Exception as exc:
+                raise Exception(f"invalid data for field: {attrname}") from exc
+
+    def __lt__(self, other):
+        return self.irl_time < other.irl_time
+
+    @classmethod
+    def from_json(cls, jsondata):
+        gdata = jsondata.get("data")
+        return Update(
+            irl_time=jsondata["date"],
+            game_status=jsondata["status"],
+            in_game_time=gdata.get("InGameTime"),
+            soi_name=gdata.get("BodyName"),
+            vessel_name=gdata.get("VesselName"),
+            dv_last_stage=gdata.get("DVLastStage"),
+        )
 

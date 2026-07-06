@@ -61,7 +61,7 @@ def mission_post():
 def mission_get(mission_uuid):
     mission = Mission.find_one(uuid=mission_uuid)
     if not mission:
-        return '', 404
+        return ('', 404)
     mission = mission.as_dict()
     #mission['url'] = f"/mission/{mission['uuid']}"
     return mission
@@ -72,7 +72,13 @@ def mission_put(mission_uuid):
 
 @app.route("/update", methods=["POST"])
 def update_post():
-    update = Update(**request.json)
+    try:
+        update = Update.from_json(request.json)
+    except Exception as exc:
+        msg = f'Invalid update data. {exc}'
+        if exc.__cause__:
+            msg += f". {exc.__cause__}"
+        return (msg, 400)
     for matcher in Matcher.iter_all():
         if matcher.match(update):
             mission = Mission.find_one(uuid=matcher["mission_uuid"])
