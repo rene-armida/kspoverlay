@@ -1,4 +1,5 @@
 #!/bin/bash
 PORT=8000
-open "http://localhost:$PORT"
-flask --app kspoverlay run --debug --host "192.168.0.211" -p "$PORT"
+LOCAL_IP="$(ipconfig getifaddr en0)"
+open "http://$LOCAL_IP:$PORT"
+flask --app kspoverlay run --debug --host "$LOCAL_IP" -p "$PORT"
