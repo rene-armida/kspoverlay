@@ -96,22 +96,22 @@ def test_Mission_asdict(app_ctx):
 
 def test_soi_matcher(app_ctx):
 	s1 = models.Matcher({"soi_name": "Kerbin"})
-	assert s1.match(models.Update("t", "Kerbin"))
-	assert not s1.match(models.Update("t", "Duna"))
+	assert s1.match(models.Update(vessel_name="test", soi_name="Kerbin"))
+	assert not s1.match(models.Update(vessel_name="t", soi_name="Duna"))
 	s1.save()
 
 	s2 = models.Matcher({"soi_name": "Eeloo"})
 	s2.save()
 
-	u = models.Update("t", "Dres")
+	u = models.Update(vessel_name="test", soi_name="Dres")
 	assert not any(
 		matcher.match(u) for matcher in models.Matcher.iter_all())
 
 def test_VesselMatcher(app_ctx):
 	v1 = models.Matcher({"vessel": "Launch.*"})
-	assert v1.match(models.Update("Launch Debris", "Kerbin"))
-	assert not v1.match(models.Update("Station", "Duna"))
+	assert v1.match(models.Update(vessel_name="Launch Debris", soi_name="Kerbin"))
+	assert not v1.match(models.Update(vessel_name="Station", soi_name="Duna"))
 	
-	u = models.Update("t", "Dres")
+	u = models.Update(vessel_name="test", soi_name="Dres")
 	assert not any(
 		matcher.match(u) for matcher in models.Matcher.iter_all())

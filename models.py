@@ -224,27 +224,32 @@ class Update:
     '''
     Ephemeral data sent from the game with latest info on the scene.
     '''
-    ATTRS = [
-        ('irl_time', datetime.fromisoformat),
-        ('game_status', GameStatus_or_none),
-        ('in_game_time', float_or_none),
-        ('vessel_name', string_or_none),
-        ('soi_name', string_or_none),
-        ('dv_last_stage', float_or_none),
-        ('altitude_sea_level', float_or_none),
-        ('altitude_terrain', float_or_none),
-        ('velocity', float_or_none),
-        ('velocity_h', float_or_none),
-        ('velocity_v', float_or_none),
-        ('roll', float_or_none),
-        ('pitch', float_or_none),
-        ('heading', float_or_none),
-    ]
+    # TODO unify with filterdict - maybe use it? idk
+    ATTRS = {
+        'irl_time': datetime.fromisoformat,
+        'game_status': GameStatus_or_none,
+        'in_game_time': float_or_none,
+        'vessel_name': string_or_none,
+        'soi_name': string_or_none,
+        'dv_last_stage': float_or_none,
+        'altitude_sea_level': float_or_none,
+        'altitude_terrain': float_or_none,
+        'velocity': float_or_none,
+        'velocity_h': float_or_none,
+        'velocity_v': float_or_none,
+        'roll': float_or_none,
+        'pitch': float_or_none,
+        'heading': float_or_none,
+    }
 
     def __init__(self, **kwargs):
-        for attrname, typefunc in self.ATTRS:
+        '''
+        apply type coercion according to ATTRS while copying from kwargs
+        '''
+        for attrname, attrval in kwargs.items():
             try:
-                setattr(self, attrname, typefunc(kwargs.get(attrname)))
+                typefunc = self.ATTRS.get(attrname, lambda x: x)
+                setattr(self, attrname, typefunc(attrval))
             except Exception as exc:
                 raise Exception(f"invalid data for field: {attrname}") from exc
 
@@ -256,7 +261,7 @@ class Update:
         gdata = jsondata.get("data")
         return Update(
             irl_time=jsondata["date"],
-            game_status=jsondata["status"],
+            game_status=gdata["Status"],
             in_game_time=gdata.get("InGameTime"),
             soi_name=gdata.get("BodyName"),
             vessel_name=gdata.get("VesselName"),

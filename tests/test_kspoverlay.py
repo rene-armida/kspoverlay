@@ -53,11 +53,13 @@ def test_mission_get(app_ctx):
 	m = Mission.find_one(name="m2")
 	assert m.as_dict() == client.get(f"/mission/{m['uuid']}").json
 
-
 def test_post_update_not_json(app_ctx):
 	client = app.test_client()
 	resp = client.post("/update", "blah")
-	assert resp.status_code == 400
+	assert resp.status_code == 415 # media type not supported, because it's plain text
+
+	resp = client.post("/update", "blah", headers={"Content-Type": "application/json"})
+	assert resp.status_code == 400 # bad request, because it doesn't deserialize
 
 def test_post_update_bad_structure(app_ctx):
 	client = app.test_client()
@@ -135,8 +137,8 @@ def test_post_update(app_ctx):
 		"/update",
 		json={
 			"date": '2026-07-03T21:25:56.778929+00:00',
-			"status": "flight",
 			"data": {
+				"Status": "flight",
 				"InGameTime": 121.183,
 				"BodyName": "Kerbin",
 				"VesselName": "Stayputnik",
@@ -149,8 +151,8 @@ def test_post_update(app_ctx):
 		"/update",
 		json={
 			"date": '2026-07-03T21:25:56.778929+00:00',
-			"status": "flight",
 			"data": {
+				"Status": "flight",
 				"InGameTime": 122.1,
 				"BodyName": "Kerbin",
 				"VesselName": "Freighter Alpha Debris",
@@ -165,8 +167,8 @@ def test_post_update(app_ctx):
 		"/update",
 		json={
 			"date": '2026-07-03T21:25:56.778929+00:00',
-			"status": "flight",
 			"data": {
+				"Status": "flight",
 				"InGameTime": 123.1,
 				"BodyName": "Gateway",
 				"VesselName": "Merced",
