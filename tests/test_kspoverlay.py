@@ -81,6 +81,22 @@ def test_post_update_bad_structure(app_ctx):
 	)
 	assert resp.status_code == 400
 
+def test_bad_request_log(app_ctx):
+	client = app.test_client()
+	resp = client.post(
+		'/update',
+		json={
+			"date": "abc",
+		}
+	)
+
+	assert resp.status_code == 400
+	with open(app.config['bad_request_log']) as log_fp:
+		content = log_fp.read()
+		assert 'ValueError' in content
+		assert 'date' in content
+
+
 @mark.xfail
 def test_post_update_unexpected_game_data(app_ctx):
 	'''

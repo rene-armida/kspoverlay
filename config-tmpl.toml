@@ -2,3 +2,5 @@
 
 db_file = ":memory:"
 # db_file = db.sqlite
+
+bad_request_log = bad-request.log

@@ -1,11 +1,17 @@
+from datetime import datetime
+import json
 import tomllib
+from traceback import print_exc
 
 from flask import Flask, render_template, redirect, request
 from models import *
 
 app = Flask(__name__)
 # load config, let exceptions propagate
-app.config.from_file("config.toml", load=tomllib.load, text=False)
+# this doesn't work:
+# app.config.from_file("config.toml", load=tomllib.load, text=False)
+with open('config.toml', 'rb') as config_fp:
+    app.config.update(tomllib.load(config_fp))
 
 # template filters
 
@@ -21,6 +27,10 @@ def kinterval(tval):
 
 @app.route("/")
 def index():
+    return redirect(f'/admin/mission')
+
+@app.route("/admin/mission")
+def admin_mission():
     return render_template('index.html')
 
 @app.route("/standby")
@@ -75,6 +85,13 @@ def update_post():
     try:
         update = Update.from_json(request.json)
     except Exception as exc:
+        with open(app.config['bad_request_log'], 'a') as log_fp:
+            # log_fp.write(str(exc) + '\n')
+            log_fp.write(f'BAD REQUEST, CLIENT TIME: {datetime.now():%c}\n')
+            json.dump(request.json, log_fp, indent=2)
+            log_fp.write('\n')
+            print_exc(file=log_fp)
+
         msg = f'Invalid update data. {exc}'
         if exc.__cause__:
             msg += f". {exc.__cause__}"
