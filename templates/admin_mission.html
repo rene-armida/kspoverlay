@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Directory{% endblock %}
+
+{% block body %}
+<h1>Mission Data <a href="/admin/mission/_new" class="plusbtn">+</a></h1>
+
+<ol id="missionList">
+{% for mission in missions %}
+<li>
+	<h2>{{ mission.name }}</h2>
+	<h3>{{ mission.start | ktime }} <span>{{ ut - mission.start | kinterval }}</span></h3>
+	<p>Pri {{ mission.priority }}</p>
+	<p>Last update {{ ut - mission.last_update | kinterval }}</p>
+</li>
+{% endfor %}
+</ol>
+
+{% endblock %}
