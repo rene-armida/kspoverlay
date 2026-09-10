@@ -104,6 +104,25 @@ def flight():
 def matcher_list():
     return [matcher.as_json_dict() for matcher in Matcher.iter_all()]
 
+@app.route("/matcher", methods=["POST"])
+def matcher_post():
+    matcher = Matcher(request.json)
+    matcher.save()
+    return redirect(f'/matcher/{matcher.uuid}')
+
+@app.route("/matcher/<matcher_uuid>", methods=["GET"])
+def matcher_get(matcher_uuid):
+    matcher = Matcher.find_one(uuid=matcher_uuid)
+    if not matcher:
+        return ('', 404)
+    return matcher.as_json_dict()
+
+@app.route("/matcher/<matcher_uuid>", methods=["DELETE"])
+def matcher_delete(matcher_uuid):
+    matcher = Matcher.find_one(uuid=matcher_uuid)
+    matcher.delete()
+    return ('', 200)
+
 @app.route("/mission")
 def mission_list():
     return [mission.as_json_dict() for mission in Mission.iter_all()]
@@ -112,7 +131,7 @@ def mission_list():
 def mission_post():
     Mission(request.json).save()
     m = Mission.find_one(name=request.json['name'])
-    return redirect(f'/mission/{m["id"]}')
+    return redirect(f'/mission/{m.uuid}')
 
 @app.route("/mission/<mission_uuid>", methods=["GET"])
 def mission_get(mission_uuid):
@@ -125,6 +144,13 @@ def mission_get(mission_uuid):
 def mission_put(mission_uuid):
     Mission(request.json()).save()
     return ('', 200)
+
+@app.route("/mission/<mission_uuid>", methods=["DELETE"])
+def mission_delete(mission_uuid):
+    m1 = Mission.find_one(uuid=mission_uuid)
+    m1.delete()
+    return ('', 200)
+
 
 @app.route("/update", methods=["POST"])
 def update_post():
