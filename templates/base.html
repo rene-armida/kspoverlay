@@ -10,6 +10,14 @@
 {%block head %}{% endblock %}
 </head>
 <body>
+	{% block nav %}
+	<ul class="nav">
+		<li><a href="/admin/mission">mission list</a></li>
+		<li><a href="=/admin/matcher">matchers</a></li>
+		<li><a href="/flight">flight overlay</a></li>
+		<li><a href="/standby">standby card</a></li>
+	</ul>
+	{% endblock %}
 	{%block body%}{% endblock %}
 </body>
 </html>

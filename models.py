@@ -1,5 +1,7 @@
 import dataset
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlite3 import PrepareProtocol
+
 from flask import current_app, g
 
 from datetime import datetime
@@ -9,26 +11,56 @@ from re import fullmatch
 from uuid import uuid4
 
 
-def get_db(reset=False):
+def get_db(url=None, reset=False):
+    if not url:
+        url = current_app.config['db_file']
+
     if reset or 'db' not in g:
-        g.db = dataset.connect('sqlite:///:memory:')
+        g.db = dataset.connect(f'sqlite:///{url}')
+        g.sessionmaker = sessionmaker(bind=g.db.engine)
     return g.db
+
+# shared type conversions
+
+def KTimeStamp_or_none(val):
+    return val and KTimestamp(val) or None
+
+def GameStatus_or_none(val):
+    return val and GameStatus(val) or None
+
+def string_or_none(val):
+    return val and str(val) or None
+
+def float_or_none(val):
+    return val and float(val) or None
+
+# custom errors
+
+class ValidationError(Exception):
+    def __init__(self, message):
+        self.message = message
+
+# types
 
 class KTimeParts:
     HOURS_PER_DAY = 6
     DAYS_PER_YEAR = 426
     SECS_PER_DAY = 60*60*HOURS_PER_DAY
     SECS_PER_YEAR = 60*60*HOURS_PER_DAY*DAYS_PER_YEAR
+    SECS_PER_HOUR = 60*60
 
     def __init__(self, timestamp):
+        '''
+        break out timestamp (float) into attrs for year, day, etc.
+        '''
         self.year = (timestamp // self.SECS_PER_YEAR)
         leftover = timestamp % self.SECS_PER_YEAR
 
         self.day = leftover // self.SECS_PER_DAY
         leftover = leftover % self.SECS_PER_DAY
 
-        self.hour = leftover // (60 * 60)
-        leftover = leftover % (60 * 60)
+        self.hour = leftover // (self.SECS_PER_HOUR)
+        leftover = leftover % (self.SECS_PER_HOUR)
 
         self.minute = leftover // 60
 
@@ -36,15 +68,53 @@ class KTimeParts:
 
 class KTimestamp:
     def __init__(self, time):
+        '''
+        time is either an int or float (time since epoch at game start),
+        or a string 'YxDy HH:MM:SS'
+
+        self.time is always float after
+        '''
         if time is None:
-            raise ValueError
-        self.time = time
+            raise ValueError('expected int or float, None provided')
+        if isinstance(time, str):
+            time = self.parse(time, strict=True)
+        elif not isinstance(time, (float, int)):
+            raise ValueError(f'unexpected type: {type(time)}')
+        self.time = float(time)
 
     def as_datetime(self, separator=' '):
         timeparts = KTimeParts(self.time)
         timeparts.year += 1 # year starts at 1
         timeparts.day += 1 # same for day
-        return f'Y{timeparts.year}D{timeparts.day:03}{separator}{timeparts.hour:01}:{timeparts.minute:02}:{timeparts.second:02}'
+        return f'Y{timeparts.year:n}D{timeparts.day:03n}{separator}{timeparts.hour:01n}:{timeparts.minute:02n}:{timeparts.second:02n}'
+
+    @classmethod
+    def parse(cls, datestring, strict=False):
+        '''
+        'Y1D100 HH:MM:SS' -> int
+        '''
+        if datestring.isdigit():
+            return cls(int(datestring))
+        match = fullmatch(
+            r'[yY](?P<year>\d+)[dD](?P<day>\d+)\s+(?P<hour>\d):(?P<minute>\d?\d):?(?P<second>\d?\d)?',
+            datestring)
+        if not match:
+            if strict:
+                raise ValueError(f'unable to parse: {datestring}')
+            return None
+        # year and day start counting at 1
+        yearnum = int(match.group('year')) - 1
+        daynum = int(match.group('day')) - 1
+        return (
+            (yearnum * KTimeParts.SECS_PER_YEAR) +
+            (daynum * KTimeParts.SECS_PER_DAY) + 
+            (int(match.group('hour')) * KTimeParts.SECS_PER_HOUR) + 
+            (int(match.group('minute')) * 60) + 
+            (int(match.group('second')))
+        )
+
+    def timeparts(self):
+        return KTimeParts(self.time)
 
     def __sub__(self, other):
         return KTimestamp(self.time - other.time)
@@ -58,66 +128,34 @@ class KTimestamp:
     def as_interval(self, separator=' '):
         timeparts = KTimeParts(self.time)
         if timeparts.year > 0:
-            return f'{timeparts.year}Y{separator}{timeparts.day}D{separator}{timeparts.hour:01}H'
+            # truncated format - don't show minutes and seconds
+            return f'{timeparts.year:.0f}Y{separator}{timeparts.day:.0f}D{separator}{timeparts.hour:01.0f}H'
+
+        fmt = r'{timeparts.hour:01.0f}:{timeparts.minute:02.0f}:{timeparts.second:02.0f}'
         if timeparts.day > 0:
-            return f'{timeparts.day}D{separator}{timeparts.hour:01}:{timeparts.minute:02}:{timeparts.second:02}'
-        return f'{timeparts.hour:01}:{timeparts.minute:02}:{timeparts.second:02}'
+            fmt = r'{timeparts.day:.0f}D{separator}' + fmt
+        return fmt.format(**locals())
 
-class FilterDict:
-    _FIELDS = {}
-
-    def __init__(self, obj):
-        self._obj = obj
-
-    @staticmethod
-    def __idfn(x):
-        return x
-
-    def __getitem__(self, key):
-        return self._FIELDS.get(key, self.__idfn)(self._obj[key])
-
-    def __setitem__(self, key, val):
-        self._obj[key] = val
-
-    def __iter__(self):
-        return iter(self._obj)
-
-    def keys(self):
-        return self._obj.keys()
-
-    def values(self):
-        raise NotImplementedError
-        # return {k: self._FIELDS.get(k, self.__idfn) for k, v in self._obj.items()}
-
-    def __len__(self):
-        return len(self._obj)
-
-    def copy(self):
-        return self.__class__(self._obj.copy())
-
-    def setdefault(self, key, val):
-        return self._obj.setdefault(key, val)
-
-    def update(self, other):
-        return self._obj.update(other)
-
-    def items(self):
-        for key, val in self._obj.items():
-            yield (key, self._FIELDS.get(key, self.__idfn)(val))
-
-    def __delitem__(self, key):
-        del self._obj[key]
-
-
-class Model(FilterDict):
-
-    def __init__(self, obj):
+    def __conform__(self, protocol):
         '''
-        ensure ID creation
+        make instances of this class adaptable to the database
         '''
-        super().__init__(obj)
-        if 'uuid' not in self._obj:
-            self._obj['uuid'] = str(uuid4())
+        if protocol is PrepareProtocol:
+            return self.time
+
+class Model:
+    # class attrs
+    # TABLENAME: database table name
+    # JSON_TYPE_NAME: how to describe this type over the wire
+
+    def __init__(self, row_obj):
+        '''
+        copy values from a Datasets row, and ensure a UUID is created
+        '''
+        for k, v in row_obj.items():
+            setattr(self, k, v)
+        if not hasattr(self, 'uuid'):
+            self.uuid = str(uuid4())
 
     @classmethod
     def iter_all(cls, **kwargs):
@@ -127,71 +165,118 @@ class Model(FilterDict):
     @classmethod
     def find_one(cls, **kwargs):
         db = get_db()
-        return cls(db[cls.TABLENAME].find_one(**kwargs))
+        found = db[cls.TABLENAME].find_one(**kwargs)
+        if not found:
+            raise ValueError(f'no matching record: {kwargs}')
+        return cls(found)
+
+    def as_db_row(self):
+        '''
+        return a database row - a dict - for storage
+        '''
+        return {
+            'uuid': self.uuid
+        }
 
     def save(self):
         db = get_db()
-        db[self.TABLENAME].upsert(self._obj, ["uuid"])
+        db[self.TABLENAME].upsert(self.as_db_row(), ["uuid"])
 
-    @staticmethod
-    def _serializable(val):
-        if isinstance(val, KTimestamp):
-            return val.as_datetime()
-        return val
+    def delete(self):
+        db = get_db()
+        db[self.TABLENAME].delete(uuid=self.uuid)
 
-    def as_dict(self):
+    def as_json_dict(self):
         '''
         turn into a dict with all contents serializable for JSON
         '''
-        val = {k: self._serializable(v) for k, v in self.items()}
-        val['type'] = self._get_type_name()
-        val['url'] = f'/{self._get_type_name()}/{self["uuid"]}'
+        val = self.as_db_row()
+        val['type'] = self.JSON_TYPE_NAME
+        val['url'] = f'/{self.JSON_TYPE_NAME}/{self.uuid}'
         return val
 
 class Mission(Model):
     TABLENAME = 'mission'
+    JSON_TYPE_NAME = 'mission'
 
-    @staticmethod
-    def _timestamp_or_none(val):
-        if val is None:
-            return None
-        return KTimestamp(val)
+    def __init__(self, row_obj):
+        super().__init__(row_obj)
+        self._start = KTimestamp(row_obj['start'])
+        self._last_update = KTimestamp(row_obj['last_update'])
+        self.name = row_obj['name']
 
+    @property
+    def mission_elapsed_time(self):
+        return (
+            all([self._last_update, self._start]) and
+            (self._last_update - self._start).as_interval()
+        )
 
-    _FIELDS = {
-        'start': _timestamp_or_none,
-        'last_update': _timestamp_or_none,
-    }
+    @property
+    def start(self):
+        return self._start
+
+    @start.setter
+    def start(self, val):
+        self._start = KTimestamp(val)
+
+    @property
+    def last_update(self):
+        return self._last_update
+
+    @last_update.setter
+    def last_update(self, val):
+        self._last_update = KTimestamp(val)
+
+    def as_db_row(self):
+        db_row = super().as_db_row()
+        db_row.update({
+            'start': self._start.time, # stored as a number
+            'last_update': self._last_update.time, # stored as a number
+            'name': self.name,
+        })
+        return db_row
+
+    @classmethod
+    def by_start(cls):
+        return cls.iter_all(order_by='start')
 
     @classmethod
     def by_last_update(cls):
         return cls.iter_all(order_by='-last_update')
 
-    def as_dict(self):
-        d = super().as_dict()
-        if all(self._obj.get(x) for x in ['last_update', 'start']):
-            d['mission_elapsed_time'] = (self['last_update'] - self['start']).as_interval()
-        else:
-            d['mission_elapsed_time'] = None
-        return d
-
-    def _get_type_name(self):
-        return 'mission'
+    def as_json_dict(self):
+        json_dict = super().as_json_dict()
+        json_dict['mission_elapsed_time'] = self.mission_elapsed_time
+        return json_dict
 
 class Matcher(Model):
     TABLENAME = 'matcher'
+    JSON_TYPE_NAME = 'matcher'
     # has: mission_id, vessel_name, soi_name
+
+    def __init__(self, row_obj):
+        super().__init__(row_obj)
+        self.mission_uuid = row_obj['mission_uuid']
+        self.vessel_name = row_obj['vessel_name']
+        self.soi_name = row_obj['soi_name']
 
     def match(self, update):
         is_match = True # require all present filters to match
-        if self._obj.get('vessel'):
-            is_match = is_match and bool(fullmatch(self["vessel"], update.vessel_name))
-        if self._obj.get("soi_name"):
-            is_match = is_match and (update.soi_name == self["soi_name"])
+        if self.vessel_name:
+            is_match = is_match and bool(fullmatch(self.vessel_name, update.vessel_name))
+        if self.soi_name:
+            is_match = is_match and (update.soi_name == self.soi_name)
         return is_match
 
-    def _get_type_name(self):
-        return 'matcher'
+    def as_db_row(self):
+        db_row = super().as_db_row()
+        db_row.update({
+            'mission_uuid': self.mission_uuid,
+            'vessel_name': self.vessel_name,
+            'soi_name': self.soi_name,
+        })
+        return db_row
 
     @classmethod
     def iter_all(cls, **kwargs):
@@ -211,18 +296,12 @@ class GameStatus(Enum):
     ASTRONAUT_COMPLEX = 'astronaut-complex'
     RESEARCH_DEVELOPMENT = 'research-development'
 
-def GameStatus_or_none(val):
-    return val and GameStatus(val) or None
-
-def string_or_none(val):
-    return val and str(val) or None
-
-def float_or_none(val):
-    return val and float(val) or None
-
 class Update:
     '''
     Ephemeral data sent from the game with latest info on the scene.
+
+    Note - this isn't a Model! Data is copied from this into db-backed
+    Model instances as necessary.
     '''
     # TODO unify with filterdict - maybe use it? idk
     ATTRS = {

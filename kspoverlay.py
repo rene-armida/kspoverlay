@@ -3,7 +3,8 @@ import json
 import tomllib
 from traceback import print_exc
 
-from flask import Flask, render_template, redirect, request
+from flask import Flask, flash, g, render_template, redirect, request
+
 from models import *
 
 app = Flask(__name__)
@@ -12,6 +13,22 @@ app = Flask(__name__)
 # app.config.from_file("config.toml", load=tomllib.load, text=False)
 with open('config.toml', 'rb') as config_fp:
     app.config.update(tomllib.load(config_fp))
+
+# avoid db concurrency errors
+# see https://www.iditect.com/faq/python/using-sqlalchemy-session-from-flask-raises-quotsqlite-objects-created-in-a-thread-can-only-be-used-in-that-same-threadquot.html
+
+
+@app.before_request
+def before_request():
+    # run the db connection just to get the app to create a sessionmaker
+    get_db()
+    g.session = g.sessionmaker()
+
+@app.after_request
+def after_request(response):
+    if hasattr(g, 'session'):
+        g.session.close()
+    return response
 
 # template filters
 
@@ -30,14 +47,44 @@ def index():
     return redirect(f'/admin/mission')
 
 @app.route("/admin/mission")
-def admin_mission():
-    return render_template('index.html')
+def admin_mission_list():
+    return render_template('admin_mission.html', missions=Mission.by_start())
 
-@app.route("/standby")
+@app.route("/admin/mission/_new", methods=["GET", "POST"])
+def admin_mission_new():
+    if request.method == 'POST':
+        vals = request.form.copy()
+        vals['start'] = KTimestamp.parse(vals['start'])
+        errors = False
+        if not vals['name']:
+            flash('Invalid name', 'error')
+            errors = True
+        if not vals['start']:
+            flash('Invalid start date, use YxxDxx H:MM:SS')
+            errors = True
+
+        if not errors:
+            try:
+                mission = Mission(vals)
+                mission.save()
+                flash('success', 'info')
+                return redirect(f'/admin/mission')
+            except ValidationError as exc:
+                flash(exc.message, 'error')
+    return render_template('admin_mission_editor.html')
+
+@app.route("/admin/mission/<mission_uuid>")
+def admin_mission_edit():
+    mission = Mission.find_one(uuid=mission_uuid)
+    if not mission:
+        return ('', 404)
+    return render_template('mission_edit.html', mission=mission)
+
+@app.route("/overlay/standby")
 def standby():
     return render_template('standby.html')
 
-@app.route("/flight")
+@app.route("/overlay/flight")
 def flight():
     args = {
         'ut': 14322,
@@ -55,11 +102,11 @@ def flight():
 
 @app.route("/matcher")
 def matcher_list():
-    return [matcher.as_dict() for matcher in Matcher.iter_all()]
+    return [matcher.as_json_dict() for matcher in Matcher.iter_all()]
 
 @app.route("/mission")
 def mission_list():
-    return [mission.as_dict() for mission in Mission.iter_all()]
+    return [mission.as_json_dict() for mission in Mission.iter_all()]
 
 @app.route("/mission", methods=["POST"])
 def mission_post():
@@ -72,13 +119,12 @@ def mission_get(mission_uuid):
     mission = Mission.find_one(uuid=mission_uuid)
     if not mission:
         return ('', 404)
-    mission = mission.as_dict()
-    #mission['url'] = f"/mission/{mission['uuid']}"
-    return mission
+    return mission.as_json_dict()
 
 @app.route("/mission/<mission_uuid>", methods=["PUT"])
 def mission_put(mission_uuid):
-    Mission.from_dict(request.json()).save()
+    Mission(request.json()).save()
+    return ('', 200)
 
 @app.route("/update", methods=["POST"])
 def update_post():
@@ -98,10 +144,10 @@ def update_post():
         return (msg, 400)
     for matcher in Matcher.iter_all():
         if matcher.match(update):
-            mission = Mission.find_one(uuid=matcher["mission_uuid"])
-            mission["last_update"] = update.in_game_time
+            mission = Mission.find_one(uuid=matcher.mission_uuid)
+            mission.last_update = update.in_game_time
             mission.save()
-            return redirect(f"/mission/{matcher['mission_uuid']}") # break loop
+            return redirect(f"/mission/{matcher.mission_uuid}") # break loop
 
     # didn't match any missions, let the client know
     return ('', 202)

@@ -1,5 +1,7 @@
 # config template
 
+SECRET_KEY = "your-key-here"
+
 db_file = ":memory:"
 # db_file = db.sqlite
 
