@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Directory{% endblock %}
+{% block title %}Flight Overlay{% endblock %}
 
 {% block head %}
 <style type="text/css">
@@ -229,6 +229,7 @@ const changeCurStage = (stageIdx) => {
 }
 
 window.addEventListener("load", (event) => {
+	return;
 	changeScene();
 	changeCurStage(2);
 
@@ -256,50 +257,28 @@ window.addEventListener("load", (event) => {
 {% endblock %}
 
 {% block body %}
-<div id="controls">
-		<fieldset>
-			<label>Scene</label>
-			<select id="sceneSelect" name="scene">
-				<option value="b1">Dark</option>
-				<option value="b2">Light</option>
-				<option value="b3">Map</option>
-			</select>
-		</fieldset>
+  {% raw %}
+		<script type="importmap">
+		{
+		  "imports": {
+		    "vue": "https://unpkg.com/vue@3/dist/vue.esm-browser.js"
+		  }
+		}
+		</script>
 
-		<fieldset>
-			<label>Vessel</label>
-			<input name="vessel" type="text" value="Lond III"/>
-		</fieldset>
+	  <script type="module">
+	  	import mounts from "/static/main.js";
+	  	mounts.flightApp();
+	  </script>
 
-		<fieldset>
-			<label>MET</label>
-			<input name="met" type="text" value="T+ 106Y 229D"/>
-		</fieldset>
-
-		<fieldset>
-			<label>Date</label>
-			<input name="date" type="text" value="Y450 D340"/>
-		</fieldset>
-		
-		<fieldset>
-			<label>Stage</label>
-			<select id="stageSelect" name="stageIdx">
-				<option value="0">0</option>
-				<option value="1">1</option>
-				<option value="2">2</option>
-				<option value="3">3</option>
-				<option value="4">4</option>
-			</select>
-		</fieldset>
-	</div>
 	<div id="main">
 		<div id="logo"></div>
 		<div id="missionInfoTriangle"></div>
 		<div id="missionInfo">
-			<h1 id="vesselName">Lond III</h1>
+			<h1 id="vesselName">{{ missionName }}</h1>
 			<div id="chrono">
-				<span id="missionET">T+ 106Y 229D</span>
-				<span id="date">Y450 D340</span>
+				<span id="missionET">{{ missionElapsedTime }}</span>
+				<span id="date">{{ currentTime }}</span>
 			</div>
 			<div id="stageArrow">
 				<div class="arrow"></div>
@@ -307,14 +286,15 @@ window.addEventListener("load", (event) => {
 			</div>
 				
 			<ol id="missionStage">
-				<li id="prevStage"></li>
-				<li id="curStage"></li>
-				<li id="nextStage"></li>
+				<li id="prevStage">{{ prevStage }}</li>
+				<li id="curStage">{{ currentStage }}</li>
+				<li id="nextStage">{{ nextStage }}</li>
 			</ol>
 		</div>
 		<div id="camTriangle"></div>
 		<div id="camFrame">
-			<img src="cam-placeholder.png"/>
+			<img src="/static/cam-placeholder.png"/>
 		</div>
 	</div>
+  {% endraw %}
 {% endblock %}

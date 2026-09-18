@@ -151,9 +151,11 @@ def mission_delete(mission_uuid):
     m1.delete()
     return ('', 200)
 
-
 @app.route("/update", methods=["POST"])
 def update_post():
+    '''
+    plugin is sending us latest game data
+    '''
     try:
         update = Update.from_json(request.json)
     except Exception as exc:
@@ -170,6 +172,8 @@ def update_post():
         return (msg, 400)
     for matcher in Matcher.iter_all():
         if matcher.match(update):
+            # TODO: consider moving this to get_latest_status
+            # would avoid a db hit
             mission = Mission.find_one(uuid=matcher.mission_uuid)
             mission.last_update = update.in_game_time
             mission.save()
@@ -177,3 +181,17 @@ def update_post():
 
     # didn't match any missions, let the client know
     return ('', 202)
+
+@app.route("/update/_latest")
+def get_update_latest():
+    '''
+    Vue app in OBS overlay is asking for latest info
+    '''
+    # one mission can have multiple vehicles
+    # we can't save display-relevant milestones
+    # (launching, sub-orbital, orbital) in Mission
+
+    return {
+        "display": "flight",
+        "missionName": "hello",
+    }
