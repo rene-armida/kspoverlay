@@ -179,7 +179,7 @@ def update_post():
             mission = Mission.find_one(uuid=matcher.mission_uuid)
             mission.last_update = update.in_game_time
             mission.save()
-            return redirect(f"/mission/{matcher.mission_uuid}") # break loop
+            return ('', 200) # break the loop
 
     # didn't match any missions, let the client know
     return ('', 202)

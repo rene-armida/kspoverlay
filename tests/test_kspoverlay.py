@@ -169,10 +169,8 @@ def test_post_update(app_ctx):
 			}
 		}
 	)
-	assert resp.status_code == 302
-	# let's follow the response to verify name
-	assert "m1" == client.get(resp.location).json["name"]
-
+	assert resp.status_code == 200
+	
 	resp = client.post(
 		"/update",
 		json={
@@ -185,9 +183,7 @@ def test_post_update(app_ctx):
 			}
 		}
 	)
-	assert resp.status_code == 302
-	# let's follow the response to verify name
-	assert "m2" == client.get(resp.location).json["name"]
-
+	assert resp.status_code == 200
+	
 	assert Mission.find_one(name="m1").last_update == KTimestamp(122.1)
 	assert Mission.find_one(name="m2").last_update == KTimestamp(123.1)
