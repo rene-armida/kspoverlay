@@ -296,54 +296,121 @@ class GameStatus(Enum):
     ASTRONAUT_COMPLEX = 'astronaut-complex'
     RESEARCH_DEVELOPMENT = 'research-development'
 
-class Update:
+class Update(Model):
     '''
     Ephemeral data sent from the game with latest info on the scene.
 
-    Note - this isn't a Model! Data is copied from this into db-backed
-    Model instances as necessary.
+    Updates are sent from the plugin in the game on a periodic basis.
+    This can quickly balloon in size and store large numbers of records,
+    but only the most recent is important.
     '''
-    # TODO unify with filterdict - maybe use it? idk
-    ATTRS = {
-        'irl_time': datetime.fromisoformat,
-        'game_status': GameStatus_or_none,
-        'in_game_time': float_or_none,
-        'vessel_name': string_or_none,
-        'soi_name': string_or_none,
-        'dv_last_stage': float_or_none,
-        'altitude_sea_level': float_or_none,
-        'altitude_terrain': float_or_none,
-        'velocity': float_or_none,
-        'velocity_h': float_or_none,
-        'velocity_v': float_or_none,
-        'roll': float_or_none,
-        'pitch': float_or_none,
-        'heading': float_or_none,
-    }
+    TABLENAME = 'game_update'
+    JSON_TYPE_NAME = 'update'
 
-    def __init__(self, **kwargs):
+    def __init__(self, row_obj):
         '''
         apply type coercion according to ATTRS while copying from kwargs
         '''
-        for attrname, attrval in kwargs.items():
-            try:
-                typefunc = self.ATTRS.get(attrname, lambda x: x)
-                setattr(self, attrname, typefunc(attrval))
-            except Exception as exc:
-                raise Exception(f"invalid data for field: {attrname}") from exc
+        super().__init__(row_obj)
+        self.irl_time = row_obj['irl_time']
+        self.game_status = GameStatus_or_none(row_obj.get('game_status'))
+        self._in_game_time = float_or_none(row_obj.get('in_game_time'))
+        self.vessel_name = string_or_none(row_obj.get('vessel_name'))
+        self.soi_name = string_or_none(row_obj.get('soi_name'))
+        self.dv_last_stage = float_or_none(row_obj.get('dv_last_stage'))
+        self.altitude_sea_level = float_or_none(row_obj.get('altitude_sea_level'))
+        self.altitude_terrain = float_or_none(row_obj.get('altitude_terrain'))
+        self.velocity = float_or_none(row_obj.get('velocity'))
+        self.velocity_h = float_or_none(row_obj.get('velocity_h'))
+        self.velocity_v = float_or_none(row_obj.get('velocity_v'))
+        self.roll = float_or_none(row_obj.get('roll'))
+        self.pitch = float_or_none(row_obj.get('pitch'))
+        self.heading = float_or_none(row_obj.get('heading'))
 
     def __lt__(self, other):
         return self.irl_time < other.irl_time
 
+    def save(self):
+        '''
+        override: only save the latest info; db singleton
+        '''
+        table = get_db()[self.TABLENAME]
+
+        # delete all records
+        table.delete()
+
+        # insert this record. this assumes records always arrive in chrono order
+        table.insert(self.as_db_row())
+
+
+    def as_db_row(self):
+        db_row = super().as_db_row()
+        db_row.update({
+            'irl_time': self._irl_time,
+            'game_status': self.game_status,
+            'in_game_time': self._in_game_time,
+            'vessel_name': self.vessel_name,
+            'soi_name': self.soi_name,
+            'dv_last_stage': self.dv_last_stage,
+            'altitude_sea_level': self.altitude_sea_level,
+            'altitude_terrain': self.altitude_terrain,
+            'velocity': self.velocity,
+            'velocity_h': self.velocity_h,
+            'velocity_v': self.velocity_v,
+            'roll': self.roll,
+            'pitch': self.pitch,
+            'heading': self.heading,
+        })
+        return db_row
+
+    @property
+    def irl_time(self):
+        return self._irl_time
+
+    @irl_time.setter
+    def irl_time(self, val):
+        '''
+        accept floats and ints directly, otherwise parse
+        '''
+        if isinstance(val, (float, int)):
+            self._irl_time = val
+        else:
+            self._irl_time = datetime.fromisoformat(val)
+
+    @property
+    def in_game_time(self):
+        return self._in_game_time
+
+    @in_game_time.setter
+    def in_game_time(self, val):
+        '''
+        accept (float, int, None) directly, otherwise parse
+        '''
+        if isinstance(val, (float, int)):
+            self._in_game_time = val
+            return
+
+        if val is None:
+            self._in_game_time = None
+            return
+
+        self._in_game_time = datetime.fromisoformat(val)
+    
+    @classmethod
+    def get_latest(cls):
+        return cls.find_one(order_by='-irl_time')
+
     @classmethod
     def from_json(cls, jsondata):
+        '''
+        TODO: make this more applicative?
+        '''
         gdata = jsondata.get("data")
-        return Update(
-            irl_time=jsondata["date"],
-            game_status=gdata["Status"],
-            in_game_time=gdata.get("InGameTime"),
-            soi_name=gdata.get("BodyName"),
-            vessel_name=gdata.get("VesselName"),
-            dv_last_stage=gdata.get("DVLastStage"),
-        )
-
+        return cls({
+            'irl_time': jsondata["date"],
+            'game_status': gdata["Status"],
+            'in_game_time': gdata.get("InGameTime"),
+            'soi_name': gdata.get("BodyName"),
+            'vessel_name': gdata.get("VesselName"),
+            'dv_last_stage': gdata.get("DVLastStage"),
+        })

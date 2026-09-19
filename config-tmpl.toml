@@ -5,4 +5,4 @@ SECRET_KEY = "your-key-here"
 db_file = ":memory:"
 # db_file = db.sqlite
 
-bad_request_log = bad-request.log
+request_log = request.log

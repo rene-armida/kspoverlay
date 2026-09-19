@@ -3,6 +3,7 @@ import pytest
 
 import kspoverlay
 
+from time import time
 from uuid import uuid4
 
 @pytest.fixture
@@ -93,24 +94,37 @@ def test_Mission_as_json_dict(app_ctx):
         'mission_elapsed_time': '0:00:02',
     } == actual
 
+def _update(vessel_name, soi_name, **kwargs):
+    kwargs['irl_time'] = time()
+    kwargs['vessel_name'] = vessel_name
+    kwargs['soi_name'] = soi_name
+    return models.Update(kwargs)
+
 def test_soi_matcher(app_ctx):
     s1 = models.Matcher({'mission_uuid': str(uuid4()), 'vessel_name': None, "soi_name": "Kerbin"})
-    assert s1.match(models.Update(vessel_name="test", soi_name="Kerbin"))
-    assert not s1.match(models.Update(vessel_name="t", soi_name="Duna"))
+    assert s1.match(_update("test", "Kerbin"))
+    assert not s1.match(_update("t", "Duna"))
     s1.save()
 
     s2 = models.Matcher({'mission_uuid': str(uuid4()), 'vessel_name': None, "soi_name": "Eeloo"})
     s2.save()
 
-    u = models.Update(vessel_name="test", soi_name="Dres")
+    u = _update("test", "Dres")
     assert not any(
         matcher.match(u) for matcher in models.Matcher.iter_all())
 
 def test_VesselMatcher(app_ctx):
     v1 = models.Matcher({'mission_uuid': str(uuid4()), "vessel_name": "Launch.*", 'soi_name': None})
-    assert v1.match(models.Update(vessel_name="Launch Debris", soi_name="Kerbin"))
-    assert not v1.match(models.Update(vessel_name="Station", soi_name="Duna"))
+    assert v1.match(_update("Launch Debris", "Kerbin"))
+    assert not v1.match(_update("Station", "Duna"))
     
-    u = models.Update(vessel_name="test", soi_name="Dres")
+    u = _update("test", "Dres")
     assert not any(
         matcher.match(u) for matcher in models.Matcher.iter_all())
+
+def test_Update_latest(app_ctx):
+    for in_game_time in [3.930, 10, 8.1]:
+        models.Update({'irl_time': time(), 'in_game_time': in_game_time}).save()
+    
+    actual = models.Update.get_latest()
+    assert actual.in_game_time == 8.1

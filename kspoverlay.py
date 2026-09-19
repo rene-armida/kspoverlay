@@ -156,20 +156,22 @@ def update_post():
     '''
     plugin is sending us latest game data
     '''
-    try:
-        update = Update.from_json(request.json)
-    except Exception as exc:
-        with open(app.config['bad_request_log'], 'a') as log_fp:
-            # log_fp.write(str(exc) + '\n')
-            log_fp.write(f'BAD REQUEST, CLIENT TIME: {datetime.now():%c}\n')
-            json.dump(request.json, log_fp, indent=2)
-            log_fp.write('\n')
+    # log all requests, capture error output if an exception occurs
+    with open(app.config['request_log'], 'a') as log_fp:
+        log_fp.write('[' + datetime.now().strftime('%c') + '] ')
+        json.dump(request.json, log_fp, separators=(',', ':'))
+        log_fp.write('\n')
+        try:
+            update = Update.from_json(request.json)
+        except Exception as exc:
+            log_fp.write(f'ERROR processing last request: ')
             print_exc(file=log_fp)
 
-        msg = f'Invalid update data. {exc}'
-        if exc.__cause__:
-            msg += f". {exc.__cause__}"
-        return (msg, 400)
+            msg = f'Invalid update data. {exc}'
+            if exc.__cause__:
+                msg += f". {exc.__cause__}"
+            return (msg, 400)
+
     for matcher in Matcher.iter_all():
         if matcher.match(update):
             # TODO: consider moving this to get_latest_status

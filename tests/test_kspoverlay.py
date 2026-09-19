@@ -1,12 +1,18 @@
 from models import KTimestamp, Mission, Matcher, get_db
 from kspoverlay import app
 
+from tempfile import NamedTemporaryFile
+
 from pytest import fixture, mark
 
 @fixture(name="app_ctx")
 def get_app_and_fresh_db():
-	with app.app_context() as the_app:
-		get_db(url=":memory:", reset=True) # recreate the database
+	with app.app_context() as the_app, NamedTemporaryFile() as temp_request_log:
+		# recreate database in memory
+		get_db(url=":memory:", reset=True)
+
+		# point request log to a new, temporary file
+		app.config['request_log'] = temp_request_log.name
 	
 		yield the_app
 
@@ -81,20 +87,24 @@ def test_post_update_bad_structure(app_ctx):
 	)
 	assert resp.status_code == 400
 
-def test_bad_request_log(app_ctx):
+
+test_request_log_testdata = [
+	# no 'Status'
+	({"date": '2026-07-03T21:25:56.778929+00:00'}, ['TypeError', 'Status']),
+	# date is unrecognizeable
+	({"date": "abc", "Status": "hello"}),
+]
+
+@mark.parametrize('request_data,expected_tokens', test_request_log_testdata)
+def test_request_log(app_ctx, request_data, expected_tokens):
 	client = app.test_client()
-	resp = client.post(
-		'/update',
-		json={
-			"date": "abc",
-		}
-	)
+	resp = client.post('/update', json=request_data)
 
 	assert resp.status_code == 400
-	with open(app.config['bad_request_log']) as log_fp:
+	with open(app.config['request_log']) as log_fp:
 		content = log_fp.read()
-		assert 'ValueError' in content
-		assert 'date' in content
+		for expected_token in expected_tokens:
+			assert expected_token in content, content
 
 
 @mark.xfail
