@@ -2,6 +2,8 @@ import { createApp } from 'vue';
 import Chrono from '/static/chrono.js';
 
 function mountApp() {
+    const refreshIntervalMs = 500;
+
     createApp({
         data() {
             return {
@@ -10,8 +12,7 @@ function mountApp() {
                 missionElapsedTime: 'T+ 101Y 358D',
                 prevStage: "Refuel Freighter",
                 currentStage: "Ejection Burn",
-                nextStage: "Correction Burn(s)",
-                intervalId: NaN
+                nextStage: "Correction Burn(s)"
             }
         },
         methods: {
@@ -28,8 +29,7 @@ function mountApp() {
             }
         },
         mounted() {
-            this.intervalId = setInterval(this.update, 500);
-            console.log("refresh interval id" + this.intervalId)
+            setInterval(this.update, 500);
         }
     })
     .component("Chrono", Chrono)
