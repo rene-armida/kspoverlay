@@ -2,6 +2,48 @@
 	--fieldlo: indigo;
 	--fieldhi: slateblue;
 	--fieldcontrast: dimgray;
+	--overlay-bg-color: slateblue;
+	--stage-prev-color: lightgray;
+	--stage-cur-color: yellow;
+	--stage-next-color: paleturquoise;
+	--transparency-key: darkgreen;
+}
+
+.arrow {
+	--t: 15%; /* control the tail part */
+	--h: 12%; /* control the head part */
+
+	aspect-ratio: 1/10;
+	height: 74px;
+	background-image: linear-gradient(to bottom,
+		var(--stage-prev-color),
+		var(--stage-cur-color),
+		var(--stage-next-color));
+	clip-path: polygon(calc(50% - var(--t)/2) 0,calc(50% - var(--t)/2) calc(100% - var(--h)),0 calc(100% - var(--h)),50% 100%,100% calc(100% - var(--h)),calc(50% + var(--t)/2) calc(100% - var(--h)),calc(50% + var(--t)/2) 0);
+}
+
+#stageArrow {
+	position: relative;
+	top: 10px;
+	float: left;
+}
+
+.rhombus {
+  height: 15px; /* adjust to control the size  */
+  aspect-ratio: 1;
+  clip-path: polygon(50% 0,100% 50%,50% 100%,0 50%);
+  background: var(--stage-cur-color);
+}
+
+#stageArrow .rhombus {
+	position: absolute;
+	top: 29px;
+	left: -3px;
+}
+
+fieldset {
+	display: inline-block;
+	border: 0;
 }
 
 body {
@@ -9,39 +51,132 @@ body {
 	font-optical-sizing: auto;
 	font-style: normal;
 	color: white;
-	background-color: var(--fieldlo);
+	background-color: darkgreen; /* identify transparent spots, turn off */
+	margin: 0;
 }
 
-a {
-	color: white;
+#main {
+	position: relative;
+	width:1920px;
+	height:1080px;
+	background-size: cover;
+	background-color: var(--transparency-key) /* change back to 'tranpsarent' */ ;
 }
 
-.nav {
-	background-color: var(--fieldcontrast);
+.b1 {
+	background-image: url(/static/flight-dark.png);
+}
+
+.b2 {
+	background-image: url(/static/flight-light.png);
+}
+
+.b3 {
+	background-image: url(/static/map-dark.png);
+}
+
+#logo {
+	background-image: url("/static/rsa-logo.png");
+	background-position: 15px 5px;
+	background-size: 150px 150px;
+	background-repeat: no-repeat;
+	width: 150px;
+	height: 150px;
+	position: absolute;
+	left: 1162px;
+	top: -10px;
+}
+
+#missionInfoTriangle {
+	width: 0;
+	height: 0;
+	border-top: 90px solid var(--overlay-bg-color);
+	border-left: 31px solid transparent;
+	left: 1324px;
+	position: absolute;
+	display: none;
+}
+
+#missionInfo {
+	position: absolute;
+	left: 1355px;
+	top: -20px;
+	width: 300px;
+	height: 155px;
+	border-radius: 20px;
+	border: 6px solid var(--overlay-bg-color);
+	padding: 15px;
+	background-color: var(--overlay-bg-color);
+}
+
+#missionInfo h1 {
+	border-radius: 4px;
+	font-weight: 800;
+	font-size: 24px;
+	margin: 0;
+}
+ 
+#chrono #date {
+	float: right;
+}
+
+#camFrame {
+	position: absolute;
+	width: 450px;
+	height: 450px;
+	right: 25px;
+	bottom: 25px;
+	border: 6px solid var(--overlay-bg-color);
+	border-radius: 20px;
+}
+
+#camFrame img { 
+	object-fit: cover;
+	max-width: 450px;
+	max-height: 450px;
+}
+
+#camTriangle {
+	position: absolute;
+	width: 0;
+	height: 0;
+	right: 0;
+	bottom: 0;
+	border-bottom: 400px solid var(--overlay-bg-color);
+	border-left: 400px solid transparent;
+}
+
+#missionStage {
+	position: relative;
 	list-style-type: none;
+	margin-top: 8px;
+	margin-bottom: 0;
 }
 
-.nav li {
+#prevStage {
+	color: var(--stage-prev-color);
+	position: relative;
+	right: 20px;
+}
+
+#curStage {
+	position: relative;
+	right: 10px;
+	color: var(--stage-cur-color);
+}
+
+#nextStage {
+	color: var(--stage-next-color);
+}
+
+.topcenterbox {
 	display: inline-block;
-	padding: 5px;
-}
-
-label {
-	display: inline-block;
-	width: 250px;
-	text-align: right;
-}
-
-input.text{
-	width: 350px;
-}
-
-.plusbtn {
-	display: inline-block;
-	height: 25px;
-	vertical-align: baseline;
+	position: relative;
+	background-color: var(--fieldcontrast);
+	height: 95px;
+	padding: 20px;
 	border: 2px solid lightgray;
-	background: skyblue;
-	text-decoration: none;
-	line-height: 0.6;
+	font-size: 50px;
+	left: 600px;
+	top: 400px;
 }
