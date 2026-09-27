@@ -16,9 +16,14 @@
 	  </script>
 
 		<div id="main">
+				<!-- one id'd block per display mode -->
+
+				<!-- "nodata" display mode -->
 				<div id="nodataDisplay" v-if="display == 'nodata'">
 					<p class="topcenterbox">receiving...</p>
 				</div>
+
+				<!-- "flight" display mode -->
 				<div id="flightDisplay" v-if="display == 'flight'">
 	        <div id="logo"></div>
 	        <div id="missionInfoTriangle"></div>
