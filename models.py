@@ -5,7 +5,7 @@ from sqlite3 import PrepareProtocol
 from flask import current_app, g
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from itertools import chain
 from re import fullmatch
 from uuid import uuid4
@@ -86,7 +86,7 @@ class KTimestamp:
         timeparts = KTimeParts(self.time)
         timeparts.year += 1 # year starts at 1
         timeparts.day += 1 # same for day
-        return f'Y{timeparts.year:n}D{timeparts.day:03n}{separator}{timeparts.hour:01n}:{timeparts.minute:02n}:{timeparts.second:02n}'
+        return f'Y{timeparts.year:n}D{timeparts.day:03n}{separator}{timeparts.hour:01n}:{timeparts.minute:02n}:{timeparts.second:02.0f}'
 
     @classmethod
     def parse(cls, datestring, strict=False):
@@ -284,7 +284,7 @@ class Matcher(Model):
             kwargs['order_by'] = 'priority'
         return super().iter_all(**kwargs)
 
-class GameStatus(Enum):
+class GameStatus(StrEnum):
     FLIGHT = 'flight'
     PAUSED_FLIGHT = 'paused-flight'
     SPACE_CENTER = 'space-center'

@@ -1,6 +1,4 @@
 {% extends "base.html" %}
-{% block title %}Flight Overlay{% endblock %}
-
 {% block head %}
 <style type="text/css">
 :root {
@@ -111,7 +109,7 @@ body {
 	position: absolute;
 	left: 1355px;
 	top: -20px;
-	width: 250px;
+	width: 300px;
 	height: 155px;
 	border-radius: 20px;
 	border: 6px solid var(--overlay-bg-color);
@@ -268,7 +266,7 @@ window.addEventListener("load", (event) => {
 
 	  <script type="module">
 	  	import mounts from "/static/main.js";
-	  	mounts.flightApp();
+	  	mounts.mountApp();
 	  </script>
 
 	<div id="main">
@@ -276,10 +274,7 @@ window.addEventListener("load", (event) => {
 		<div id="missionInfoTriangle"></div>
 		<div id="missionInfo">
 			<h1 id="vesselName">{{ missionName }}</h1>
-			<div id="chrono">
-				<span id="missionET">{{ missionElapsedTime }}</span>
-				<span id="date">{{ currentTime }}</span>
-			</div>
+			<chrono :met="missionElapsedTime" :igt="currentTime"></chrono>
 			<div id="stageArrow">
 				<div class="arrow"></div>
 				<div class="rhombus" id="activeStage"></div>

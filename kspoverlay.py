@@ -193,7 +193,15 @@ def get_update_latest():
     # we can't save display-relevant milestones
     # (launching, sub-orbital, orbital) in Mission
 
+    from time import time
+    fake_igt = KTimestamp((KTimestamp.parse('Y450D102 3:05:00') + time()))
+    fake_mission_start = KTimestamp(KTimestamp.parse('Y462D1 0:01:00'))
+
     return {
         "display": "flight",
         "missionName": "hello",
+        'irlTime': datetime.now().strftime('%c'),
+        'gameStatus': str(GameStatus.FLIGHT),
+        'inGameTime': fake_igt.as_datetime(),
+        'missionElapsedTime': (fake_igt - fake_mission_start).as_interval(),
     }
