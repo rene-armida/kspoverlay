@@ -6,16 +6,25 @@ import Chrono from '/static/chrono.js';
 nodata - startup, don't know what to show yet
 flight - orbital
 flightPause - ESC menu active, hide it
+launching - blank, start here, transition to the "launch" display
 launch - small game + charts
 launchPause - ESC menu active during launch
 */
 
-const FlightDisplay = defineComponent({
+const LaunchingDisplay = defineComponent({
     template: ``
 })
 
+const LaunchDisplay = defineComponent({
+    template: ``
+})
+
+const FlightDisplay = defineComponent({
+
+})
+
 function mountApp() {
-    const refreshIntervalMs = 5000;
+    const refreshIntervalMs = 50000;
 
     createApp({
         data() {
@@ -43,7 +52,7 @@ function mountApp() {
                 }
 
                 if ( this.display == "nodata" ) {
-                    
+
                 }
             }
         },

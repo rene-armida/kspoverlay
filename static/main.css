@@ -169,14 +169,21 @@ body {
 	color: var(--stage-next-color);
 }
 
-.topcenterbox {
+.top {
+	top: 0px;
+}
+
+.bottom {
+	top: 850px;
+}
+
+.overlaybox {
 	display: inline-block;
-	position: relative;
+	position: absolute;
 	background-color: var(--fieldcontrast);
 	height: 95px;
 	padding: 20px;
 	border: 2px solid lightgray;
 	font-size: 50px;
-	left: 600px;
-	top: 400px;
+	left: 250px;
 }

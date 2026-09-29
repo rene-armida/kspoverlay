@@ -20,7 +20,20 @@
 
 				<!-- "nodata" display mode -->
 				<div id="nodataDisplay" v-if="display == 'nodata'">
-					<p class="topcenterbox">receiving...</p>
+					<p class="top overlaybox">receiving...</p>
+				</div>
+
+				<!-- "launching" display mode -->
+				<div id="launchingDisplay" v-if="display == 'launching'">
+					<!-- no content - wait for the "launch" display -->
+					<p class="bottom overlaybox">launching soon...</p>
+				</div>
+
+				<!-- "launch" display mode -->
+				<div id="launchDisplay" v-if="display == 'launch'">
+					<div id="logo"></div>
+	        <div id="chartSm"></div>
+	        <div id="chartLg"></div>
 				</div>
 
 				<!-- "flight" display mode -->
@@ -40,10 +53,12 @@
 	                <li id="nextStage">{{ nextStage }}</li>
 	            </ol>
 	        </div>
+	        <!-- 
 	        <div id="camTriangle"></div>
 	        <div id="camFrame">
 	            <img src="/static/cam-placeholder.png"/>
 	        </div>
+	      	-->
 	      </div>
     </div>
   {% endraw %}
