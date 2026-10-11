@@ -306,10 +306,32 @@ class Update(Model):
     '''
     TABLENAME = 'game_update'
     JSON_TYPE_NAME = 'update'
+    CHART_FIELDS = [
+        'in_game_time',
+        'roll',
+        'pitch',
+        'heading',
+        'velocity',
+        'velocity_h',
+        'velocity_v',
+        'altitude_terrain',
+        'altitude_sea_level',
+        'dv_last_stage',
+    ]
+    FIELD_NAME_MAP = {
+        "Status": 'status',
+        "BodyName": 'soi_name',
+        "InGameTime": 'in_game_time',
+        "VesselName": "vessel_name",
+        "DVLastStage": "dv_last_stage",
+        "Velocity": "velocity",
+        "VelocityH": "velocity_h",
+        "VelocityV": "velocity_v",
+    }
 
     def __init__(self, row_obj):
         '''
-        apply type coercion according to ATTRS while copying from kwargs
+        apply type coercion according to ATTRS while copying from row_obj
         '''
         super().__init__(row_obj)
         self.irl_time = row_obj['irl_time']
@@ -405,12 +427,14 @@ class Update(Model):
         '''
         TODO: make this more applicative?
         '''
-        gdata = jsondata.get("data")
-        return cls({
-            'irl_time': jsondata["date"],
-            'game_status': gdata["Status"],
-            'in_game_time': gdata.get("InGameTime"),
-            'soi_name': gdata.get("BodyName"),
-            'vessel_name': gdata.get("VesselName"),
-            'dv_last_stage': gdata.get("DVLastStage"),
-        })
+        game_data = jsondata["data"]
+        update_vals = {
+            cls.FIELD_NAME_MAP.get(gkey, gkey): gval 
+            for gkey, gval in game_data.items() 
+        }
+        import pdb; pdb.set_trace()
+        return cls(update_vals)
+
+    def dump_chart_fields(self, dumpfp):
+        dumpfp.write(
+            ','.join(str(getattr(self, attrname)) for attrname in self.CHART_FIELDS))

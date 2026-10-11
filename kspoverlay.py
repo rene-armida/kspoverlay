@@ -172,6 +172,10 @@ def update_post():
                 msg += f". {exc.__cause__}"
             return (msg, 400)
 
+    if app.config.get('chart_log'):
+        with open(app.config['chart_log'], 'a') as chart_fp:
+            update.dump_chart_fields(chart_fp)
+
     for matcher in Matcher.iter_all():
         if matcher.match(update):
             # TODO: consider moving this to get_latest_status

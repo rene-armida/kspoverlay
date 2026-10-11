@@ -6,3 +6,5 @@ db_file = ":memory:"
 # db_file = db.sqlite
 
 request_log = request.log
+# set to activate logging chart data
+# chart_log = chart.log

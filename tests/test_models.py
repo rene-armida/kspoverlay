@@ -128,3 +128,5 @@ def test_Update_latest(app_ctx):
     
     actual = models.Update.get_latest()
     assert actual.in_game_time == 8.1
+
+

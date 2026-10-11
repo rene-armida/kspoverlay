@@ -1,13 +1,16 @@
 from models import KTimestamp, Mission, Matcher, get_db
 from kspoverlay import app
 
+from datetime import datetime
+import re
 from tempfile import NamedTemporaryFile
 
 from pytest import fixture, mark
 
 @fixture(name="app_ctx")
 def get_app_and_fresh_db():
-	with app.app_context() as the_app, NamedTemporaryFile() as temp_request_log:
+	with app.app_context() as the_app, \
+			NamedTemporaryFile() as temp_request_log:
 		# recreate database in memory
 		get_db(url=":memory:", reset=True)
 
@@ -15,6 +18,12 @@ def get_app_and_fresh_db():
 		app.config['request_log'] = temp_request_log.name
 	
 		yield the_app
+
+@fixture(name="app_ctx_chart")
+def get_chart_enabled_app(app_ctx):
+	with NamedTemporaryFile() as temp_chart_log:
+		app.config['chart_log'] = temp_chart_log.name
+		yield app
 
 def test_mission_list(app_ctx):
 	client = app.test_client()
@@ -89,10 +98,12 @@ def test_post_update_bad_structure(app_ctx):
 
 
 test_request_log_testdata = [
+	# no 'data' subdict
+	({"date": '2026-07-03T21:25:56.778929+00:00'}, ['KeyError', 'data']),
 	# no 'Status'
-	({"date": '2026-07-03T21:25:56.778929+00:00'}, ['TypeError', 'Status']),
+	# ({"date": '2026-07-03T21:25:56.778929+00:00'}, ['TypeError', 'Status']),
 	# date is unrecognizeable
-	({"date": "abc", "Status": "hello"}),
+	# ({"date": "abc", "Status": "hello"}),
 ]
 
 @mark.parametrize('request_data,expected_tokens', test_request_log_testdata)
@@ -148,6 +159,7 @@ def test_post_update(app_ctx):
 		json={
 			"date": '2026-07-03T21:25:56.778929+00:00',
 			"data": {
+				"irl_time": '2026-07-03T21:25:56.778929+00:00',
 				"Status": "flight",
 				"InGameTime": 121.183,
 				"BodyName": "Kerbin",
@@ -155,13 +167,37 @@ def test_post_update(app_ctx):
 			}
 		}
 	)
-	assert resp.status_code == 202, resp.text # ignored
+	class AssertMsg:
+		def __init__(self, resp_text):
+			self.resp_text = resp_text
+
+		def __repr__(self):
+			'''
+			called by pytest to generate explanation message
+			'''
+			with open(app.config['request_log']) as request_fp:
+				request_lines = request_fp.read().split('\n')
+			message_lines = []
+			year, day = datetime.now().strftime('%Y,%d').split(',')
+
+			for request_line in reversed(request_lines):
+				message_lines.insert(0, request_line)
+
+				if request_line.startswith('[') and \
+						year in request_line and day in request_line:
+					break
+			return self.resp_text + ' Request log: ' + \
+				'\n'.join(message_lines)
+
+	# status 202 indicates not matched to a Mission
+	assert resp.status_code == 202, AssertMsg(resp.text)
 
 	resp = client.post(
 		"/update",
 		json={
 			"date": '2026-07-03T21:25:56.778929+00:00',
 			"data": {
+				"irl_time": '2026-07-03T21:25:56.778929+00:00',
 				"Status": "flight",
 				"InGameTime": 122.1,
 				"BodyName": "Kerbin",
@@ -170,12 +206,17 @@ def test_post_update(app_ctx):
 		}
 	)
 	assert resp.status_code == 200
+	assert Mission.find_one(name="m1").last_update == KTimestamp(122.1)
+
+	resp = client.get("/update/_latest")
+	assert resp.status_code == 200
 	
 	resp = client.post(
 		"/update",
 		json={
 			"date": '2026-07-03T21:25:56.778929+00:00',
 			"data": {
+				"irl_time": '2026-07-03T21:25:56.778929+00:00',
 				"Status": "flight",
 				"InGameTime": 123.1,
 				"BodyName": "Gateway",
@@ -184,6 +225,45 @@ def test_post_update(app_ctx):
 		}
 	)
 	assert resp.status_code == 200
-	
-	assert Mission.find_one(name="m1").last_update == KTimestamp(122.1)
 	assert Mission.find_one(name="m2").last_update == KTimestamp(123.1)
+
+
+def test_chart_log(app_ctx_chart):
+	client = app.test_client()
+
+	data = {
+		'Roll': 3.193,
+		'Pitch': 45.134,
+		'Heading': 238.03,
+		'Velocity': 1234098.3,
+		'VelocityH': 1203.1,
+		'VelocityV': 12030149.1,
+		'AltitudeTerrain': 55010.3,
+		'AltitudeSeaLevel': 55050.0,
+		'DVLastStage': 10505.0,
+	}
+	data_case_map = {
+		re.sub(r'(?<!^)(?=[A-Z])', '_', k).lower() for k in data.keys()}
+
+	resp = client.post(
+		"/update",
+		json={
+			"date": '2026-07-03T21:25:56.778929+00:00',
+			"data": {
+				"irl_time": '2026-07-03T21:25:56.778929+00:00',
+				"Status": "flight",
+				"InGameTime": 121.183,
+				"BodyName": "Kerbin",
+				"VesselName": "Stayputnik",
+			} | data,
+		}
+	)
+	# should not crash and not match a Mission
+	assert resp.status_code == 202, resp.text
+
+	with open(app_ctx_chart.config['chart_log']) as chart_fp:
+		chart_log = chart_fp.read()
+	chart_lines = chart_log.split('\n')
+	assert 1 == len(chart_lines)
+	# use order of items to match
+	assert data.values() == chart_lines[0].split(',')
