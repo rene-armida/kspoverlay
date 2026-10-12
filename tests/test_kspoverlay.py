@@ -118,23 +118,6 @@ def test_request_log(app_ctx, request_data, expected_tokens):
 			assert expected_token in content, content
 
 
-@mark.xfail
-def test_post_update_unexpected_game_data(app_ctx):
-	'''
-	not implemented - unexpected game data keys are ignored
-	'''
-	client = app_ctx.test_client()
-	resp = client.post(
-		"/update",
-		json={
-			"irl_time": '2026-07-03T21:25:56.778929+00:00',
-			"status": "flight",
-			"derp": 121, #unexpected game data key
-		}
-	)
-	assert resp.status_code == 400
-
-
 def test_post_update(app_ctx):
 	m1 = Mission({"name": "m1", 'start': 100, 'last_update': 200})
 	m1.save()
