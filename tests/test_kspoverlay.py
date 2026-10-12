@@ -98,12 +98,12 @@ def test_post_update_bad_structure(app_ctx):
 
 
 test_request_log_testdata = [
-	# no 'data' subdict
-	({"date": '2026-07-03T21:25:56.778929+00:00'}, ['KeyError', 'data']),
+	# no 'irl_time'
+	({"beep": '2026-07-03T21:25:56.778929+00:00'}, ['KeyError', 'irl_time']),
 	# no 'Status'
 	# ({"date": '2026-07-03T21:25:56.778929+00:00'}, ['TypeError', 'Status']),
-	# date is unrecognizeable
-	# ({"date": "abc", "Status": "hello"}),
+	# irl_time is unrecognizeable
+	({"irl_time": "abc"}, ['ValueError', 'irl_time']),
 ]
 
 @mark.parametrize('request_data,expected_tokens', test_request_log_testdata)
@@ -111,7 +111,7 @@ def test_request_log(app_ctx, request_data, expected_tokens):
 	client = app.test_client()
 	resp = client.post('/update', json=request_data)
 
-	assert resp.status_code == 400
+	assert 400 == resp.status_code
 	with open(app.config['request_log']) as log_fp:
 		content = log_fp.read()
 		for expected_token in expected_tokens:
@@ -127,11 +127,9 @@ def test_post_update_unexpected_game_data(app_ctx):
 	resp = client.post(
 		"/update",
 		json={
-			"date": '2026-07-03T21:25:56.778929+00:00',
+			"irl_time": '2026-07-03T21:25:56.778929+00:00',
 			"status": "flight",
-			"data": {
-				"derp": 121, #unexpected game data key
-			}
+			"derp": 121, #unexpected game data key
 		}
 	)
 	assert resp.status_code == 400
@@ -157,14 +155,11 @@ def test_post_update(app_ctx):
 	resp = client.post(
 		"/update",
 		json={
-			"date": '2026-07-03T21:25:56.778929+00:00',
-			"data": {
-				"irl_time": '2026-07-03T21:25:56.778929+00:00',
-				"Status": "flight",
-				"InGameTime": 121.183,
-				"BodyName": "Kerbin",
-				"VesselName": "Stayputnik",
-			}
+			"irl_time": '2026-07-03T21:25:56.778929+00:00',
+			"status": "flight",
+			"in_game_time": 121.183,
+			"soi_name": "Kerbin",
+			"vessel_name": "Stayputnik",
 		}
 	)
 	class AssertMsg:
@@ -195,36 +190,30 @@ def test_post_update(app_ctx):
 	resp = client.post(
 		"/update",
 		json={
-			"date": '2026-07-03T21:25:56.778929+00:00',
-			"data": {
-				"irl_time": '2026-07-03T21:25:56.778929+00:00',
-				"Status": "flight",
-				"InGameTime": 122.1,
-				"BodyName": "Kerbin",
-				"VesselName": "Freighter Alpha Debris",
-			}
+			"irl_time": '2026-07-03T21:25:56.778929+00:00',
+			"status": "flight",
+			"in_game_time": 122.1,
+			"soi_name": "Kerbin",
+			"vessel_name": "Freighter Alpha Debris",
 		}
 	)
-	assert resp.status_code == 200
+	assert 200 == resp.status_code
 	assert Mission.find_one(name="m1").last_update == KTimestamp(122.1)
 
 	resp = client.get("/update/_latest")
-	assert resp.status_code == 200
+	assert 200 == resp.status_code
 	
 	resp = client.post(
 		"/update",
 		json={
-			"date": '2026-07-03T21:25:56.778929+00:00',
-			"data": {
-				"irl_time": '2026-07-03T21:25:56.778929+00:00',
-				"Status": "flight",
-				"InGameTime": 123.1,
-				"BodyName": "Gateway",
-				"VesselName": "Merced",
-			}
+			"irl_time": '2026-07-03T21:25:56.778929+00:00',
+			"status": "flight",
+			"in_game_time": 123.1,
+			"soi_name": "Gateway",
+			"vessel_name": "Merced",
 		}
 	)
-	assert resp.status_code == 200
+	assert 200 == resp.status_code
 	assert Mission.find_one(name="m2").last_update == KTimestamp(123.1)
 
 
@@ -243,23 +232,18 @@ def test_chart_log(app_ctx_chart):
 		'altitude_sea_level': 55050.0,
 		'dv_last_stage': 10505.0,
 	}
-	data_case_map = {
-		re.sub(r'(?<!^)(?=[A-Z])', '_', k).lower() for k in data.keys()}
 
 	resp = client.post(
 		"/update",
 		json={
-			"date": '2026-07-03T21:25:56.778929+00:00',
-			"data": {
-				"irl_time": '2026-07-03T21:25:56.778929+00:00',
-				"status": "flight",
-				"BodyName": "Kerbin",
-				"VesselName": "Stayputnik",
-			} | data,
-		}
+			"irl_time": '2026-07-03T21:25:56.778929+00:00',
+			"status": "flight",
+			"soi_name": "Kerbin",
+			"vessel_name": "Stayputnik",
+		} | data,
 	)
 	# should not crash and not match a Mission
-	assert resp.status_code == 202, resp.text
+	assert 202 == resp.status_code
 
 	with open(app_ctx_chart.config['chart_log']) as chart_fp:
 		chart_log = chart_fp.read()

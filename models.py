@@ -318,16 +318,6 @@ class Update(Model):
         'altitude_sea_level',
         'dv_last_stage',
     ]
-    FIELD_NAME_MAP = {
-        "Status": 'status',
-        "BodyName": 'soi_name',
-        "InGameTime": 'in_game_time',
-        "VesselName": "vessel_name",
-        "DVLastStage": "dv_last_stage",
-        "Velocity": "velocity",
-        "VelocityH": "velocity_h",
-        "VelocityV": "velocity_v",
-    }
 
     def __init__(self, row_obj):
         '''
@@ -421,18 +411,6 @@ class Update(Model):
     @classmethod
     def get_latest(cls):
         return cls.find_one(order_by='-irl_time')
-
-    @classmethod
-    def from_json(cls, jsondata):
-        '''
-        TODO: make this more applicative?
-        '''
-        game_data = jsondata["data"]
-        update_vals = {
-            cls.FIELD_NAME_MAP.get(gkey, gkey): gval 
-            for gkey, gval in game_data.items() 
-        }
-        return cls(update_vals)
 
     def dump_chart_fields(self, dumpfp):
         dumpfp.write(

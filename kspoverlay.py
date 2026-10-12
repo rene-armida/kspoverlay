@@ -162,7 +162,7 @@ def update_post():
         json.dump(request.json, log_fp, separators=(',', ':'))
         log_fp.write('\n')
         try:
-            update = Update.from_json(request.json)
+            update = Update(request.json)
         except Exception as exc:
             log_fp.write(f'ERROR processing last request: ')
             print_exc(file=log_fp)
