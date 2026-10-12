@@ -415,3 +415,4 @@ class Update(Model):
     def dump_chart_fields(self, dumpfp):
         dumpfp.write(
             ','.join(str(getattr(self, attrname)) for attrname in self.CHART_FIELDS))
+        dumpfp.write('\n')

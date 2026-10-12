@@ -231,7 +231,8 @@ def test_chart_log(app_ctx_chart):
 	with open(app_ctx_chart.config['chart_log']) as chart_fp:
 		chart_log = chart_fp.read()
 	chart_lines = chart_log.split('\n')
-	assert 1 == len(chart_lines)
+	assert 2 == len(chart_lines)
+	assert '' == chart_lines[1]
 	# build a dict for actual values so the diff is informative
 	expected = {k: str(v) for k,v in data.items()}
 	actual = {k: v for k,v in 
