@@ -232,15 +232,16 @@ def test_chart_log(app_ctx_chart):
 	client = app.test_client()
 
 	data = {
-		'Roll': 3.193,
-		'Pitch': 45.134,
-		'Heading': 238.03,
-		'Velocity': 1234098.3,
-		'VelocityH': 1203.1,
-		'VelocityV': 12030149.1,
-		'AltitudeTerrain': 55010.3,
-		'AltitudeSeaLevel': 55050.0,
-		'DVLastStage': 10505.0,
+		'in_game_time': 121.183,
+		'roll': 3.193,
+		'pitch': 45.134,
+		'heading': 238.03,
+		'velocity': 1234098.3,
+		'velocity_h': 1203.1,
+		'velocity_v': 12030149.1,
+		'altitude_terrain': 55010.3,
+		'altitude_sea_level': 55050.0,
+		'dv_last_stage': 10505.0,
 	}
 	data_case_map = {
 		re.sub(r'(?<!^)(?=[A-Z])', '_', k).lower() for k in data.keys()}
@@ -251,8 +252,7 @@ def test_chart_log(app_ctx_chart):
 			"date": '2026-07-03T21:25:56.778929+00:00',
 			"data": {
 				"irl_time": '2026-07-03T21:25:56.778929+00:00',
-				"Status": "flight",
-				"InGameTime": 121.183,
+				"status": "flight",
 				"BodyName": "Kerbin",
 				"VesselName": "Stayputnik",
 			} | data,
@@ -265,5 +265,8 @@ def test_chart_log(app_ctx_chart):
 		chart_log = chart_fp.read()
 	chart_lines = chart_log.split('\n')
 	assert 1 == len(chart_lines)
-	# use order of items to match
-	assert data.values() == chart_lines[0].split(',')
+	# build a dict for actual values so the diff is informative
+	expected = {k: str(v) for k,v in data.items()}
+	actual = {k: v for k,v in 
+		zip(data.keys(), chart_lines[0].split(','))}
+	assert expected == actual

@@ -432,7 +432,6 @@ class Update(Model):
             cls.FIELD_NAME_MAP.get(gkey, gkey): gval 
             for gkey, gval in game_data.items() 
         }
-        import pdb; pdb.set_trace()
         return cls(update_vals)
 
     def dump_chart_fields(self, dumpfp):
