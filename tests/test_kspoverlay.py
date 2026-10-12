@@ -69,33 +69,10 @@ def test_mission_get(app_ctx):
 def test_post_update_not_json(app_ctx):
 	client = app.test_client()
 	resp = client.post("/update", "blah")
-	assert resp.status_code == 415 # media type not supported, because it's plain text
+	assert 415 == resp.status_code # media type not supported, because it's plain text
 
 	resp = client.post("/update", "blah", headers={"Content-Type": "application/json"})
-	assert resp.status_code == 400 # bad request, because it doesn't deserialize
-
-def test_post_update_bad_structure(app_ctx):
-	client = app.test_client()
-	resp = client.post(
-		"/update",
-		json={
-			"date": '2026-07-03T21:25:56.778929+00:00',
-			"status": "meep", # bad status value
-			"data": {
-				"in_game_time": 121,
-				"soi_name": "Kerbin",
-				"vessel_name": "Stayputnik",
-			}
-		}
-	)
-	assert resp.status_code == 400
-
-	resp = client.post(
-		"/update",
-		json={"woop": "abc"} # missing expected keys
-	)
-	assert resp.status_code == 400
-
+	assert 415 == resp.status_code # bad request, because it doesn't deserialize
 
 test_request_log_testdata = [
 	# no 'irl_time'

@@ -4,6 +4,7 @@ import tomllib
 from traceback import print_exc
 
 from flask import Flask, flash, g, render_template, redirect, request
+import werkzeug.exceptions
 
 from models import *
 
@@ -159,12 +160,19 @@ def update_post():
     # log all requests, capture error output if an exception occurs
     with open(app.config['request_log'], 'a') as log_fp:
         log_fp.write('[' + datetime.now().strftime('%c') + '] ')
-        json.dump(request.json, log_fp, separators=(',', ':'))
+    with open(app.config['request_log'], 'ab') as log_fp:
+        log_fp.write(request.get_data())
+    with open(app.config['request_log'], 'a') as log_fp:
         log_fp.write('\n')
+        try:
+            request.get_json()
+        except werkzeug.exceptions.BadRequest:
+            return ('Invalid JSON content', 415)
+
         try:
             update = Update(request.json)
         except Exception as exc:
-            log_fp.write(f'ERROR processing last request: ')
+            log_fp.write('ERROR processing last request: ')
             print_exc(file=log_fp)
 
             msg = f'Invalid update data. {exc}'
