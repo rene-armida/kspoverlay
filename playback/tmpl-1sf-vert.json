@@ -1,0 +1,34 @@
+{
+  "_meta": {
+    "duration": 60,
+    "liftoff": 4,
+    "stages": [
+      {
+        "_start": 4,
+        "engines": [
+          {
+            "_qty": 1,
+            "name": "RT-5 \"Flea\" Solid Fuel Booster",
+            "thrust": "$LIN:21,24,60",
+            "isp": "$LIN:111,140,60",
+            "propellants": ["SolidFuel"]
+          }
+        ],
+        "propellants": []
+      }
+    ]
+  },
+  "situation": "$SITUATION",
+  "soi_name": "Kerbin",
+  "dv_last_stage": "$LIN:250,0,60",
+  "total_mass": "$LIN:1.902,1.44,60",
+  "total_thrust": "$LIN:22.5,23.531,60",
+  "irl_time": "$TIME",
+  "vessel_id": "$VESSEL",
+  "vessel_name": "1flea",
+  "current_stage": "$STAGE",
+  "altitude_sea_level": "$EXP:0.5,1.15,55",
+  "altitude_terrain": "$EXP:0.5,1.15,0.4",
+  "engines": "$ENGINES",
+  "propellants": "$PROPELLANTS"
+}
