@@ -5,7 +5,7 @@ from sqlite3 import PrepareProtocol
 from flask import current_app, g
 
 from datetime import datetime
-from enum import StrEnum
+from enum import StrEnum, Enum
 from itertools import chain
 from re import fullmatch
 from uuid import uuid4
@@ -284,6 +284,48 @@ class Matcher(Model):
             kwargs['order_by'] = 'priority'
         return super().iter_all(**kwargs)
 
+class Progress(Enum):
+    '''
+    A vessel's progress forward in a mission; queried to determine
+    which transitions and displays should be used
+
+    This is based around the KSP "Situation" enum
+    https://anatid.github.io/XML-Documentation-for-the-KSP-API/class_vessel.html#acea90b73d9b4523383503ec82f2f63bb
+
+    But because we are re-ordering and dropping some of the constants,
+    we change the name. Also, we won't ever go backwards in this scheme;
+    vehicles only increase in Progress.
+    '''
+    # before the first stage is activated
+    PRELAUNCH = 10
+    # on ascent to orbit, including sub-orbital flight out of atmo
+    LAUNCH = 20
+    # orbital maneuvers around the homeworld and/or its satellites
+    HOME_ORBIT = 30
+    # outside homeworld soi
+    TRANSFER_OUT = 40
+    # mid-mission entry, descent, and landing
+    # we don't have a good way of automatically detecting this,
+    # but it'd eventually be nice to have new graphics here
+    REMOTE_EDL = 50
+    # touchdown achieved, operations on another body
+    REMOTE_LANDED = 60
+    # return to orbit around another body
+    # another opportunity to add graphics later
+    REMOTE_ASCENT = 70
+    # back in orbit around another body
+    # may include being docked at a station for a long time
+    REMOTE_ORBIT = 80
+    # returning to the homeworld
+    TRANSFER_IN = 90
+    # in homeworld SOI. May include docking at stations in SOI
+    HOME_ORBIT_RETURN = 100
+    # reentering atmo at the homeworld
+    # usually in a small crew recovery pod
+    HOME_EDL = 110
+    # crew is returned to the surface
+    HOME_LANDED = 120
+
 class GameStatus(StrEnum):
     FLIGHT = 'flight'
     PAUSED_FLIGHT = 'paused-flight'
@@ -410,9 +452,74 @@ class Update(Model):
     
     @classmethod
     def get_latest(cls):
-        return cls.find_one(order_by='-irl_time')
+        try:
+            return cls.find_one(order_by='-irl_time')
+        except ValueError:
+            return None
 
     def dump_chart_fields(self, dumpfp):
         dumpfp.write(
             ','.join(str(getattr(self, attrname)) for attrname in self.CHART_FIELDS))
         dumpfp.write('\n')
+
+    def to_vessel(self):
+        if update.situation == 'PRELAUNCH':
+            progresses = [Progress.PRELAUNCH]
+        elif update.situtaion in ['FLYING', 'SUBORBITAL'] and update.soi_name in ['Rhode', 'Lua']:
+            progresses = [Progress.LAUNCH, Progress.HOME_EDL]
+        elif update.situtaion == 'ORBITING' and update.soi_name in ['Rhode', 'Lua']:
+            progress = [Progress.HOME_ORBIT, Progress.HOME_ORBIT_RETURN]
+        elif update.situation in ['LANDED', 'SPLASHED'] and update.soi_name in ['Rhode', 'Lua']:
+            progress = [Progress.HOME_LANDED]
+        
+        return [
+            Vessel({
+                'uuid': self.vessel_id,
+                'igt_last_update': update.in_game_time,
+                'progress': progress.value})
+            for progress in progresses]
+
+class Vessel(Model):
+    def __init__(self, rowobj):
+        '''
+        This should only ever be called by record_progress
+        '''
+        # ksp's vessel ID
+        self.uuid = rowobj['uuid']
+        # when we last changed progress to a new value
+        self.igt_last_update = rowobj['igt_last_update']
+        # our own version of KSP's "Situation"
+        self.progress = Progress(rowobj['progress'])
+
+    def as_db_row(self):
+        return {
+            'uuid': self.uuid,
+            'igt_last_update': self.igt_last_update,
+            'progress': self._progress.value,
+        }
+
+    @classmethod
+    def record_progress(cls, update):
+        '''
+        which display and transitions should be shown?
+        '''
+        vessel = Vessel.find_one(uuid=update.vessel_id)
+        transition = '' # todo
+        
+        for new_vessel in update.to_vessel():
+            if not vessel:
+                # first time we're seeing this id, save it
+                new_vessel.save()
+                return
+            if new_vessel.igt_last_update < vessel.igt_last_update:
+                # time went backward, assume we are reverting
+                new_vessel.save()
+                return
+            if new_vessel.progress.value > vessel.progress.value:
+                # progress is increasing, we just transitioned
+                new_vessel.save()
+                
+                return
+
+        # we should not get here
+        raise Exception('could not determine progress')

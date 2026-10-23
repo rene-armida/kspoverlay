@@ -1,4 +1,5 @@
 from datetime import datetime
+from enum import StrEnum
 import json
 import tomllib
 from traceback import print_exc
@@ -7,6 +8,12 @@ from flask import Flask, flash, g, render_template, redirect, request
 import werkzeug.exceptions
 
 from models import *
+
+class Display(StrEnum):
+    STANDBY = 'standby'
+    FLIGHT = 'flight'
+    PRELAUNCH = 'prelaunch'
+    LAUNCH = 'launch'
 
 app = Flask(__name__)
 # load config, let exceptions propagate
@@ -209,8 +216,17 @@ def get_update_latest():
     fake_igt = KTimestamp((KTimestamp.parse('Y450D102 3:05:00') + time()))
     fake_mission_start = KTimestamp(KTimestamp.parse('Y462D1 0:01:00'))
 
+    update = Update.get_latest()
+    if not update:
+        return {
+            'display': Display.STANDBY,
+            'irlTime': datetime.now().strftime('%c'),
+        }
+    display, transition = Vessel.record_progress(update)
+
     return {
-        "display": "flight",
+        "display": display,
+        "transition": transition,
         "missionName": "hello",
         'irlTime': datetime.now().strftime('%c'),
         'gameStatus': str(GameStatus.FLIGHT),
