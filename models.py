@@ -202,15 +202,7 @@ class Mission(Model):
     def __init__(self, row_obj):
         super().__init__(row_obj)
         self._start = KTimestamp(row_obj['start'])
-        self._last_update = KTimestamp(row_obj['last_update'])
         self.name = row_obj['name']
-
-    @property
-    def mission_elapsed_time(self):
-        return (
-            all([self._last_update, self._start]) and
-            (self._last_update - self._start).as_interval()
-        )
 
     @property
     def start(self):
@@ -220,19 +212,10 @@ class Mission(Model):
     def start(self, val):
         self._start = KTimestamp(val)
 
-    @property
-    def last_update(self):
-        return self._last_update
-
-    @last_update.setter
-    def last_update(self, val):
-        self._last_update = KTimestamp(val)
-
     def as_db_row(self):
         db_row = super().as_db_row()
         db_row.update({
             'start': self._start.time, # stored as a number
-            'last_update': self._last_update.time, # stored as a number
             'name': self.name,
         })
         return db_row
@@ -241,14 +224,6 @@ class Mission(Model):
     def by_start(cls):
         return cls.iter_all(order_by='start')
 
-    @classmethod
-    def by_last_update(cls):
-        return cls.iter_all(order_by='-last_update')
-
-    def as_json_dict(self):
-        json_dict = super().as_json_dict()
-        json_dict['mission_elapsed_time'] = self.mission_elapsed_time
-        return json_dict
 
 class Matcher(Model):
     TABLENAME = 'matcher'
@@ -518,7 +493,7 @@ class Vessel(Model):
             if new_vessel.progress.value > vessel.progress.value:
                 # progress is increasing, we just transitioned
                 new_vessel.save()
-                
+
                 return
 
         # we should not get here

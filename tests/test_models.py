@@ -67,19 +67,17 @@ def test_KTimestamp_parse(test_input, expected):
     assert expected == actual
 
 def test_Mission_saveload(app_ctx):
-    m1 = models.Mission({"name": "M1", "start": 123, "last_update": 125})
+    m1 = models.Mission({"name": "M1", "start": 123})
     assert m1.start.as_datetime() == "Y1D001 0:02:03"
-    assert m1.last_update.as_datetime() == "Y1D001 0:02:05"
     m1.save()
 
     # ensure the same values are available after load
     m1 = models.Mission.find_one(name="M1")
     assert m1.name == "M1"
     assert m1.start.as_datetime() == "Y1D001 0:02:03"
-    assert m1.last_update.as_datetime() == "Y1D001 0:02:05"
 
 def test_Mission_as_json_dict(app_ctx):
-    m1 = models.Mission({"name": "M1", "start": 123, "last_update": 125})
+    m1 = models.Mission({"name": "M1", "start": 123})
     m1.save()
 
     m1 = models.Mission.find_one(name='M1')
@@ -90,8 +88,6 @@ def test_Mission_as_json_dict(app_ctx):
         'url': f'/mission/{m1.uuid}',
         'name': 'M1',
         'start': 123,
-        'last_update': 125,
-        'mission_elapsed_time': '0:00:02',
     } == actual
 
 def _update(vessel_name, soi_name, **kwargs):

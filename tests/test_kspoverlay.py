@@ -43,8 +43,6 @@ def test_mission_list(app_ctx):
 			"type": "mission",
 			"name": "m1",
 			"start": 1,
-			"last_update": 1000,
-			"mission_elapsed_time": '0:16:39',
 			"url": f"/mission/{m1.uuid}",
 		},
 		{
@@ -52,8 +50,6 @@ def test_mission_list(app_ctx):
 			"type": "mission",
 			"name": "m2",
 			"start": 25,
-			"last_update": 2000,
-			"mission_elapsed_time": '0:32:55',
 			"url": f"/mission/{m2.uuid}",
 		}
 	]
@@ -61,8 +57,8 @@ def test_mission_list(app_ctx):
 
 def test_mission_get(app_ctx):
 	client = app.test_client()
-	Mission({"name": "m1", "start": 1, "last_update": 1}).save()
-	Mission({"name": "m2", "start": 50, "last_update": 1000}).save()
+	Mission({"name": "m1", "start": 1}).save()
+	Mission({"name": "m2", "start": 50}).save()
 	m = Mission.find_one(name="m2")
 	assert m.as_json_dict() == client.get(f"/mission/{m.uuid}").json
 
@@ -158,7 +154,6 @@ def test_post_update(app_ctx):
 		}
 	)
 	assert 200 == resp.status_code
-	assert Mission.find_one(name="m1").last_update == KTimestamp(122.1)
 
 	resp = client.get("/update/_latest")
 	assert 200 == resp.status_code
@@ -174,7 +169,6 @@ def test_post_update(app_ctx):
 		}
 	)
 	assert 200 == resp.status_code
-	assert Mission.find_one(name="m2").last_update == KTimestamp(123.1)
 
 
 def test_chart_log(app_ctx_chart):

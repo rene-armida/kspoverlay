@@ -193,11 +193,9 @@ def update_post():
 
     for matcher in Matcher.iter_all():
         if matcher.match(update):
-            # TODO: consider moving this to get_latest_status
-            # would avoid a db hit
             mission = Mission.find_one(uuid=matcher.mission_uuid)
-            mission.last_update = update.in_game_time
-            mission.save()
+            # mission.last_update = update.in_game_time
+            # mission.save()
             return ('', 200) # break the loop
 
     # didn't match any missions, let the client know
@@ -223,6 +221,11 @@ def get_update_latest():
             'irlTime': datetime.now().strftime('%c'),
         }
     display, transition = Vessel.record_progress(update)
+    mission = None
+    for matcher in Matcher.iter_all():
+        if matcher.match(update):
+            mission = Mission.find_one(uuid=matcher.mission_uuid)
+            break
 
     return {
         "display": display,
@@ -230,6 +233,6 @@ def get_update_latest():
         "missionName": "hello",
         'irlTime': datetime.now().strftime('%c'),
         'gameStatus': str(GameStatus.FLIGHT),
-        'inGameTime': fake_igt.as_datetime(),
-        'missionElapsedTime': (fake_igt - fake_mission_start).as_interval(),
+        'inGameTime': update.in_game_time.as_datetime(),
+        'missionElapsedTime': (update.in_game_time - mission.in_game_time).as_interval() if mission else None
     }
