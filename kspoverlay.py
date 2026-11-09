@@ -4,7 +4,8 @@ import json
 import tomllib
 from traceback import print_exc
 
-from flask import Flask, flash, g, render_template, redirect, request
+from flask import Flask, flash, g, render_template, redirect, request, Response
+from loguru import logger
 import werkzeug.exceptions
 
 from models import *
@@ -21,6 +22,9 @@ app = Flask(__name__)
 # app.config.from_file("config.toml", load=tomllib.load, text=False)
 with open('config.toml', 'rb') as config_fp:
     app.config.update(tomllib.load(config_fp))
+
+# custom application logging
+logger.add(app.config['app_log'])
 
 # avoid db concurrency errors
 # see https://www.iditect.com/faq/python/using-sqlalchemy-session-from-flask-raises-quotsqlite-objects-created-in-a-thread-can-only-be-used-in-that-same-threadquot.html
@@ -166,18 +170,21 @@ def update_post():
     '''
     # log all requests, capture error output if an exception occurs
     with open(app.config['request_log'], 'a') as log_fp:
+        # start of line
         log_fp.write('[' + datetime.now().strftime('%c') + '] ')
     with open(app.config['request_log'], 'ab') as log_fp:
+        # request content is binary, dump as-is
         log_fp.write(request.get_data())
     with open(app.config['request_log'], 'a') as log_fp:
         log_fp.write('\n')
         try:
-            request.get_json()
-        except werkzeug.exceptions.BadRequest:
+            request_json = request.get_json()
+        except werkzeug.exceptions.BadRequest as exc:
+            logger.error('Client sent invalid content, ignoring')
             return ('Invalid JSON content', 415)
 
         try:
-            update = Update(request.json)
+            update = Update(request_json)
         except Exception as exc:
             log_fp.write('ERROR processing last request: ')
             print_exc(file=log_fp)
@@ -187,19 +194,29 @@ def update_post():
                 msg += f". {exc.__cause__}"
             return (msg, 400)
 
+    Vessel.record_progress(update)
+
     if app.config.get('chart_log'):
         with open(app.config['chart_log'], 'a') as chart_fp:
             update.dump_chart_fields(chart_fp)
 
     for matcher in Matcher.iter_all():
         if matcher.match(update):
-            mission = Mission.find_one(uuid=matcher.mission_uuid)
+            try:
+                mission = Mission.find_one(uuid=matcher.mission_uuid)
+            except ValueError:
+                # broken reference
+                return (f'Missing referenced mission id: {matcher.mission_uuid}', 500)
             # mission.last_update = update.in_game_time
             # mission.save()
             return ('', 200) # break the loop
 
     # didn't match any missions, let the client know
     return ('', 202)
+
+@app.route("/_display")
+def get_display_latest():
+    return Response(Display.STANDBY, content_type="text/plain")
 
 @app.route("/update/_latest")
 def get_update_latest():
@@ -221,6 +238,10 @@ def get_update_latest():
             'irlTime': datetime.now().strftime('%c'),
         }
     display, transition = Vessel.record_progress(update)
+    # TODO when the display value changes, we need to send an HTTP
+    # request to the OBS plugin. It'd be better to have the plugin
+    # poll us, since it knows its own state (we have to record it otherwise)
+
     mission = None
     for matcher in Matcher.iter_all():
         if matcher.match(update):

@@ -1,4 +1,5 @@
 import dataset
+from loguru import logger
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from sqlite3 import PrepareProtocol
 
@@ -10,6 +11,8 @@ from itertools import chain
 from re import fullmatch
 from uuid import uuid4
 
+
+HOMEWORLDS = ['Kerbin', 'Rhode', 'Lua']
 
 def get_db(url=None, reset=False):
     if not url:
@@ -345,6 +348,7 @@ class Update(Model):
         self.game_status = GameStatus_or_none(row_obj.get('game_status'))
         self._in_game_time = float_or_none(row_obj.get('in_game_time'))
         self.vessel_name = string_or_none(row_obj.get('vessel_name'))
+        self.vessel_id = string_or_none(row_obj.get('vessel_id'))
         self.soi_name = string_or_none(row_obj.get('soi_name'))
         self.dv_last_stage = float_or_none(row_obj.get('dv_last_stage'))
         self.altitude_sea_level = float_or_none(row_obj.get('altitude_sea_level'))
@@ -379,6 +383,7 @@ class Update(Model):
             'game_status': self.game_status,
             'in_game_time': self._in_game_time,
             'vessel_name': self.vessel_name,
+            'vessel_id': self.vessel_id,
             'soi_name': self.soi_name,
             'dv_last_stage': self.dv_last_stage,
             'altitude_sea_level': self.altitude_sea_level,
@@ -438,23 +443,28 @@ class Update(Model):
         dumpfp.write('\n')
 
     def to_vessel(self):
-        if update.situation == 'PRELAUNCH':
+        if self.situation == 'PRELAUNCH':
             progresses = [Progress.PRELAUNCH]
-        elif update.situtaion in ['FLYING', 'SUBORBITAL'] and update.soi_name in ['Rhode', 'Lua']:
+        elif self.situation in ['FLYING', 'SUBORBITAL'] and self.soi_name in HOMEWORLDS:
             progresses = [Progress.LAUNCH, Progress.HOME_EDL]
-        elif update.situtaion == 'ORBITING' and update.soi_name in ['Rhode', 'Lua']:
-            progress = [Progress.HOME_ORBIT, Progress.HOME_ORBIT_RETURN]
-        elif update.situation in ['LANDED', 'SPLASHED'] and update.soi_name in ['Rhode', 'Lua']:
-            progress = [Progress.HOME_LANDED]
+        elif self.situation == 'ORBITING' and self.soi_name in HOMEWORLDS:
+            progresses = [Progress.HOME_ORBIT, Progress.HOME_ORBIT_RETURN]
+        elif self.situation in ['LANDED', 'SPLASHED'] and self.soi_name in HOMEWORLDS:
+            progresses = [Progress.HOME_LANDED]
+        else:
+            logger.warning("no potential progress statuses for vessel: {}", self.vessel_id)
+            progresses = []
         
         return [
             Vessel({
                 'uuid': self.vessel_id,
-                'igt_last_update': update.in_game_time,
+                'igt_last_update': self.in_game_time,
                 'progress': progress.value})
             for progress in progresses]
 
 class Vessel(Model):
+    TABLENAME = 'vessel'
+    
     def __init__(self, rowobj):
         '''
         This should only ever be called by record_progress
@@ -470,7 +480,7 @@ class Vessel(Model):
         return {
             'uuid': self.uuid,
             'igt_last_update': self.igt_last_update,
-            'progress': self._progress.value,
+            'progress': self.progress.value,
         }
 
     @classmethod
@@ -478,23 +488,28 @@ class Vessel(Model):
         '''
         which display and transitions should be shown?
         '''
-        vessel = Vessel.find_one(uuid=update.vessel_id)
-        transition = '' # todo
+        try:
+            vessel = Vessel.find_one(uuid=update.vessel_id)
+        except ValueError:
+            # previously-unseen vessel id
+            vessel = None
         
         for new_vessel in update.to_vessel():
             if not vessel:
                 # first time we're seeing this id, save it
+                logger.info('New vessel ID recorded: {}', update.vessel_id)
                 new_vessel.save()
                 return
             if new_vessel.igt_last_update < vessel.igt_last_update:
                 # time went backward, assume we are reverting
+                logger.warning('Reverting progress for vessel ID: {}', update.vessel_id)
                 new_vessel.save()
                 return
             if new_vessel.progress.value > vessel.progress.value:
                 # progress is increasing, we just transitioned
+                logger.warning('Incremented progress for vessel: {}', update.vessel_id)
                 new_vessel.save()
-
                 return
 
-        # we should not get here
-        raise Exception('could not determine progress')
+
+        # nothing changed or no potential progresses were returned

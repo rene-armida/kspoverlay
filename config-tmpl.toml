@@ -8,3 +8,6 @@ db_file = ":memory:"
 request_log = request.log
 # set to activate logging chart data
 # chart_log = chart.log
+
+# application logic logging
+app_log = app.log
