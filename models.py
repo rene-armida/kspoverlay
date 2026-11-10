@@ -304,7 +304,23 @@ class Progress(Enum):
     # crew is returned to the surface
     HOME_LANDED = 120
 
+    def to_display(self):
+        if self == self.LAUNCH:
+            return Display.LAUNCH
+        return Display.FLIGHT
+
+class Display(StrEnum):
+    '''
+    what view is the front-end showing?
+    '''
+    NODATA = 'nodata' # startup, don't know what to show yet
+    FLIGHT = 'flight' # generic flight, show chrono + mission
+    FLIGHT_PAUSE = 'flightPause' # ESC menu active, hide it
+    LAUNCH = 'launch' # small game + charts
+    LAUNCH_PAUSE = 'launchPause' # ESC menu active during launch
+
 class GameStatus(StrEnum):
+    # TODO: still necessary?
     FLIGHT = 'flight'
     PAUSED_FLIGHT = 'paused-flight'
     SPACE_CENTER = 'space-center'
@@ -498,16 +514,21 @@ class Vessel(Model):
             if not vessel:
                 # first time we're seeing this id, save it
                 logger.info('New vessel ID recorded: {}', update.vessel_id)
+                new_vessel.display = Display.FLIGHT
                 new_vessel.save()
                 return
             if new_vessel.igt_last_update < vessel.igt_last_update:
                 # time went backward, assume we are reverting
-                logger.warning('Reverting progress for vessel ID: {}', update.vessel_id)
+                logger.warning('Reverting progress for vessel ID {} to {}', update.vessel_id, new_vessel.progress)
+                # TODO: assign display
                 new_vessel.save()
                 return
             if new_vessel.progress.value > vessel.progress.value:
+                # TODO: bug! this isn't a state machine, assumes that all
+                # previous progress values should always increase;
+                # leads to immediate incrementing when one Situation -> [>1 Progress]
                 # progress is increasing, we just transitioned
-                logger.warning('Incremented progress for vessel: {}', update.vessel_id)
+                logger.warning('Incremented progress for vessel ID {} to {}', update.vessel_id, new_vessel.progress)
                 new_vessel.save()
                 return
 

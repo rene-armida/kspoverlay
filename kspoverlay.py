@@ -207,8 +207,8 @@ def update_post():
             except ValueError:
                 # broken reference
                 return (f'Missing referenced mission id: {matcher.mission_uuid}', 500)
-            # mission.last_update = update.in_game_time
-            # mission.save()
+            # TODO: save mission id in Update
+            
             return ('', 200) # break the loop
 
     # didn't match any missions, let the client know
@@ -223,37 +223,34 @@ def get_update_latest():
     '''
     Vue app in OBS overlay is asking for latest info
     '''
-    # one mission can have multiple vehicles
-    # we can't save display-relevant milestones
-    # (launching, sub-orbital, orbital) in Mission
-
-    from time import time
-    fake_igt = KTimestamp((KTimestamp.parse('Y450D102 3:05:00') + time()))
-    fake_mission_start = KTimestamp(KTimestamp.parse('Y462D1 0:01:00'))
-
+    # get latest Update and associated Vessel + Mission
     update = Update.get_latest()
     if not update:
         return {
             'display': Display.STANDBY,
             'irlTime': datetime.now().strftime('%c'),
         }
-    display, transition = Vessel.record_progress(update)
+
+    try:
+        vessel = Vessel.find_one(uuid=update.vessel_id)
+    except ValueError:
+        vessel = None
+    
+    # TODO: capture mission_uuid in Update
+    #try:
+     #   mission = Mission.find_one(mission_uuid=update.mission_uuid)
+    # except ValueError:
+    #     mission = None
+    
     # TODO when the display value changes, we need to send an HTTP
     # request to the OBS plugin. It'd be better to have the plugin
     # poll us, since it knows its own state (we have to record it otherwise)
 
-    mission = None
-    for matcher in Matcher.iter_all():
-        if matcher.match(update):
-            mission = Mission.find_one(uuid=matcher.mission_uuid)
-            break
-
     return {
-        "display": display,
-        "transition": transition,
-        "missionName": "hello",
+        "display": vessel.progress.to_display(),
+        "missionName": "hello", # mission.name
         'irlTime': datetime.now().strftime('%c'),
-        'gameStatus': str(GameStatus.FLIGHT),
+        'gameStatus': None, # TODO: this is for pause state, retain?
         'inGameTime': update.in_game_time.as_datetime(),
         'missionElapsedTime': (update.in_game_time - mission.in_game_time).as_interval() if mission else None
     }
