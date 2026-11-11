@@ -26,7 +26,7 @@ with open('config.toml', 'rb') as config_fp:
 # custom application logging
 def short_uuid(uuid):
     if not uuid:
-        return ''
+        return '?'
     return uuid[:6] + '..' + uuid[-6:]
 
 logger.add(app.config['app_log'], format="{time} | {level} | {module}:{function}:{line} - {message} - vessel {extra[vessel_id]} mission {extra[mission_uuid]}")
@@ -221,7 +221,8 @@ def update_post():
     try:
         vessel = Vessel.find_one(uuid=update.vessel_id)
     except ValueError:
-        # previously-unseen vessel id
+        # TODO: why doesn't this message run?
+        logger.warning('previously-unseen vessel', vessel_id=update.vessel_id, mission_id=mission_uuid)
         vessel = Vessel({
             'mission_uuid': mission_uuid,
             'uuid': update.vessel_id,
@@ -232,6 +233,9 @@ def update_post():
     with logger.contextualize(
             mission_uuid=short_uuid(mission_uuid),
             vessel_id=short_uuid(update.vessel_id)):
+        # give state machine callbacks access to some important vars
+        g.mission_uuid = mission_uuid
+        g.in_game_time = update.in_game_time
         vessel.state.advance(update=update)
     update.save()
     vessel.save()

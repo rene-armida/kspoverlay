@@ -32,6 +32,7 @@ def close_db():
         g.db.close()
         del g.db
 
+
 # shared type conversions
 
 def KTimeStamp_or_none(val):
@@ -175,10 +176,12 @@ class Model:
         return (cls(i) for i in db[cls.TABLENAME].all(**kwargs))
 
     @classmethod
-    def find_one(cls, **kwargs):
+    def find_one(cls, _none_if_missing=False, **kwargs):
         db = get_db()
         found = db[cls.TABLENAME].find_one(**kwargs)
         if not found:
+            if _none_if_missing:
+                return None
             raise ValueError(f'no matching record: {kwargs}')
         return cls(found)
 
@@ -271,9 +274,54 @@ class Matcher(Model):
             kwargs['order_by'] = 'priority'
         return super().iter_all(**kwargs)
 
-class MissionTransitionLogger:
+class MissionTransitionListener:
     def after_transition(self, event, source, target):
         logger.warning(f"mission transition {source.id} -> {target.id}")
+        if getattr(g, 'mission_uuid'):
+            MissionProgress.record(g.mission_uuid, g.in_game_time, target.id)
+
+
+class MissionProgress(Model):
+    '''
+    One:many log of mission state machine transitions
+    '''
+    TABLENAME = 'mission_progress'
+    
+    def __init__(self, row_obj):
+        super().__init__(row_obj)
+        self.mission_uuid = row_obj['mission_uuid']
+        self.in_game_time = row_obj['in_game_time']
+        self.progress = row_obj['progress']
+
+    def as_db_row(self):
+        db_row = super().as_db_row()
+        db_row.update({
+            'mission_uuid': self.mission_uuid,
+            'in_game_time': self.in_game_time,
+            'progress': self.progress,
+        })
+        return db_row
+
+    @classmethod
+    def record(cls, mission_uuid, in_game_time, progress):
+        '''
+        associate mission and progress at igt. all args are required.
+
+        try to avoid duplicate records. Note we're not using transactions.
+        '''
+        if any(not i for i in [mission_uuid, in_game_time, progress]):
+            raise ValueError(f'invalid args: {mission_uuid}, {in_game_time}, {progress}')
+
+        if cls.find_one(mission_uuid=mission_uuid, progress=progress, _none_if_missing=True):
+            # duplicate, ignore
+            return
+
+        MissionProgress({
+            'mission_uuid': mission_uuid,
+            'in_game_time': in_game_time,
+            'progress': progress,
+        }).save()
+        # [(mp.mission_uuid, mp.in_game_time, mp.progress) for mp in MissionProgress.iter_all()]
 
 class MissionMachine(StateChart):
     '''
@@ -317,7 +365,7 @@ class MissionMachine(StateChart):
     # all of these will use the same cond function to check IGT
 
     # listeners
-    listeners = [MissionTransitionLogger]
+    listeners = [MissionTransitionListener]
     
     def launch_start(self, update=None, **kwargs):
         return update.situation == 'FLYING'
