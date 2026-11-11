@@ -24,7 +24,12 @@ with open('config.toml', 'rb') as config_fp:
     app.config.update(tomllib.load(config_fp))
 
 # custom application logging
-logger.add(app.config['app_log'])
+def short_uuid(uuid):
+    if not uuid:
+        return ''
+    return uuid[:6] + '..' + uuid[-6:]
+
+logger.add(app.config['app_log'], format="{time} | {level} | {module}:{function}:{line} - {message} - vessel {extra[vessel_id]} mission {extra[mission_uuid]}")
 
 # avoid db concurrency errors
 # see https://www.iditect.com/faq/python/using-sqlalchemy-session-from-flask-raises-quotsqlite-objects-created-in-a-thread-can-only-be-used-in-that-same-threadquot.html
@@ -38,8 +43,10 @@ def before_request():
 
 @app.after_request
 def after_request(response):
-    if hasattr(g, 'session'):
+    if 'session' in g:
         g.session.close()
+
+    close_db()
     return response
 
 # template filters
@@ -194,12 +201,12 @@ def update_post():
                 msg += f". {exc.__cause__}"
             return (msg, 400)
 
-    Vessel.record_progress(update)
-
     if app.config.get('chart_log'):
         with open(app.config['chart_log'], 'a') as chart_fp:
             update.dump_chart_fields(chart_fp)
 
+    # find mission
+    mission_uuid = None
     for matcher in Matcher.iter_all():
         if matcher.match(update):
             try:
@@ -207,9 +214,30 @@ def update_post():
             except ValueError:
                 # broken reference
                 return (f'Missing referenced mission id: {matcher.mission_uuid}', 500)
-            # TODO: save mission id in Update
-            
-            return ('', 200) # break the loop
+            mission_uuid = mission.uuid
+            break
+
+
+    try:
+        vessel = Vessel.find_one(uuid=update.vessel_id)
+    except ValueError:
+        # previously-unseen vessel id
+        vessel = Vessel({
+            'mission_uuid': mission_uuid,
+            'uuid': update.vessel_id,
+            'igt_last_update': update.in_game_time,
+            'state': MissionMachine(),
+        })
+
+    with logger.contextualize(
+            mission_uuid=short_uuid(mission_uuid),
+            vessel_id=short_uuid(update.vessel_id)):
+        vessel.state.advance(update=update)
+    update.save()
+    vessel.save()
+
+    if mission_uuid:
+        return ('', 200)
 
     # didn't match any missions, let the client know
     return ('', 202)

@@ -1,5 +1,6 @@
 import dataset
 from loguru import logger
+from statemachine import StateChart, State
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from sqlite3 import PrepareProtocol
 
@@ -12,7 +13,10 @@ from re import fullmatch
 from uuid import uuid4
 
 
+# mean altitude of Rhode above TSB in meters
+RHODE_MEAN_ALT = 13338.2 * 1000 * 1000
 HOMEWORLDS = ['Kerbin', 'Rhode', 'Lua']
+STARS = ['Kerbol', 'The Sun', 'Sun', 'Tempus System Barycenter']
 
 def get_db(url=None, reset=False):
     if not url:
@@ -22,6 +26,11 @@ def get_db(url=None, reset=False):
         g.db = dataset.connect(f'sqlite:///{url}')
         g.sessionmaker = sessionmaker(bind=g.db.engine)
     return g.db
+
+def close_db():
+    if 'db' in g:
+        g.db.close()
+        del g.db
 
 # shared type conversions
 
@@ -231,7 +240,7 @@ class Mission(Model):
 class Matcher(Model):
     TABLENAME = 'matcher'
     JSON_TYPE_NAME = 'matcher'
-    # has: mission_id, vessel_name, soi_name
+    # has: mission_uuid, vessel_name, soi_name
 
     def __init__(self, row_obj):
         super().__init__(row_obj)
@@ -262,52 +271,91 @@ class Matcher(Model):
             kwargs['order_by'] = 'priority'
         return super().iter_all(**kwargs)
 
-class Progress(Enum):
+class MissionTransitionLogger:
+    def after_transition(self, event, source, target):
+        logger.warning(f"mission transition {source.id} -> {target.id}")
+
+class MissionMachine(StateChart):
     '''
-    A vessel's progress forward in a mission; queried to determine
-    which transitions and displays should be used
-
-    This is based around the KSP "Situation" enum
-    https://anatid.github.io/XML-Documentation-for-the-KSP-API/class_vessel.html#acea90b73d9b4523383503ec82f2f63bb
-
-    But because we are re-ordering and dropping some of the constants,
-    we change the name. Also, we won't ever go backwards in this scheme;
-    vehicles only increase in Progress.
+    state machine for transitions between Progress values
     '''
-    # before the first stage is activated
-    PRELAUNCH = 10
-    # on ascent to orbit, including sub-orbital flight out of atmo
-    LAUNCH = 20
-    # orbital maneuvers around the homeworld and/or its satellites
-    HOME_ORBIT = 30
-    # outside homeworld soi
-    TRANSFER_OUT = 40
-    # mid-mission entry, descent, and landing
-    # we don't have a good way of automatically detecting this,
-    # but it'd eventually be nice to have new graphics here
-    REMOTE_EDL = 50
-    # touchdown achieved, operations on another body
-    REMOTE_LANDED = 60
-    # return to orbit around another body
-    # another opportunity to add graphics later
-    REMOTE_ASCENT = 70
-    # back in orbit around another body
-    # may include being docked at a station for a long time
-    REMOTE_ORBIT = 80
-    # returning to the homeworld
-    TRANSFER_IN = 90
-    # in homeworld SOI. May include docking at stations in SOI
-    HOME_ORBIT_RETURN = 100
-    # reentering atmo at the homeworld
-    # usually in a small crew recovery pod
-    HOME_EDL = 110
-    # crew is returned to the surface
-    HOME_LANDED = 120
+    # states
+    prelaunch = State(initial=True)
+    launch = State()
+    home_orbit = State()
+    transfer_out = State()
+    remote_edl = State()
+    remote_landed = State()
+    remote_ascent = State()
+    remote_orbit = State()
+    transfer_in = State()
+    home_orbit_return = State()
+    home_edl = State()
+    home_landed = State(final=True)
 
-    def to_display(self):
-        if self == self.LAUNCH:
-            return Display.LAUNCH
-        return Display.FLIGHT
+    # chart
+
+    advance = (
+        prelaunch.to(launch, cond="launch_start")
+        | launch.to(home_orbit, cond="launch_end") 
+        | home_orbit.to(transfer_out, cond="transfer_out_start") 
+        | transfer_out.to(remote_edl, cond="direct_edl")
+        | transfer_out.to(remote_orbit, cond="transfer_out_orbit")
+        | remote_edl.to(remote_landed, cond="remote_edl_end")
+        | remote_landed.to(remote_ascent, cond="remote_landed_end")
+        | remote_ascent.to(remote_orbit, cond="launch_end")
+        | remote_orbit.to(transfer_in, cond="remote_orbit_transfer_in")
+        | remote_orbit.to(transfer_out, cond="remote_orbit_transfer_out")
+        | transfer_in.to(home_orbit_return, cond="transfer_in_end")
+        | home_orbit_return.to(home_edl, cond="remote_landed_end")
+        | home_edl.to(home_landed, cond="remote_edl_end")
+    )
+
+    # TODO: revert guesses
+    # when IGT goes backward, we are forced to guess the prior state
+    # we can make some educated guesses
+    # all of these will use the same cond function to check IGT
+
+    # listeners
+    listeners = [MissionTransitionLogger]
+    
+    def launch_start(self, update=None, **kwargs):
+        return update.situation == 'FLYING'
+
+    def launch_end(self, update=None, **kwargs):
+        return update.situation == 'ORBITING'
+
+    def transfer_out_start(self, update=None, **kwargs):
+        return update.soi_name in STARS
+
+    def direct_edl(self, update=None, **kwargs):
+        return update.soi_name not in STARS and update.situation == 'SUBORBITAL'
+
+    def transfer_out_orbit(self, update=None, **kwargs):
+        return update.soi_name not in STARS and update.situation == 'ORBITING'
+
+    def remote_edl_end(self, update=None, **kwargs):
+        return update.situation in ['LANDED', 'SPLASHED']
+
+    def remote_landed_end(self, update=None, **kwargs):
+        return update.situation in ['FLYING', 'SUBORBITAL']
+
+    def remote_orbit_transfer_out(self, update=None, **kwargs):
+        '''
+        leaving Merced, heading outbound to Kerbol or other destination beyond Rhode
+        '''
+        # engine should be firing, maneuver node exists and is on another soi
+        return False
+        # TODO
+        return update.thrust > 0
+
+    def remote_orbit_transfer_in(self, update=None, **kwargs):
+        # TODO see above
+        return False
+
+    def transfer_in_end(self, update=None, **kwargs):
+        return update.soi_name in HOMEWORLDS and update.situation == 'ORBITING'
+
 
 class Display(StrEnum):
     '''
@@ -375,6 +423,7 @@ class Update(Model):
         self.roll = float_or_none(row_obj.get('roll'))
         self.pitch = float_or_none(row_obj.get('pitch'))
         self.heading = float_or_none(row_obj.get('heading'))
+        self.mission_uuid = string_or_none(row_obj.get('mission_uuid'))
 
     def __lt__(self, other):
         return self.irl_time < other.irl_time
@@ -410,6 +459,7 @@ class Update(Model):
             'roll': self.roll,
             'pitch': self.pitch,
             'heading': self.heading,
+            'mission_uuid': self.mission_uuid,
         })
         return db_row
 
@@ -458,79 +508,27 @@ class Update(Model):
             ','.join(str(getattr(self, attrname)) for attrname in self.CHART_FIELDS))
         dumpfp.write('\n')
 
-    def to_vessel(self):
-        if self.situation == 'PRELAUNCH':
-            progresses = [Progress.PRELAUNCH]
-        elif self.situation in ['FLYING', 'SUBORBITAL'] and self.soi_name in HOMEWORLDS:
-            progresses = [Progress.LAUNCH, Progress.HOME_EDL]
-        elif self.situation == 'ORBITING' and self.soi_name in HOMEWORLDS:
-            progresses = [Progress.HOME_ORBIT, Progress.HOME_ORBIT_RETURN]
-        elif self.situation in ['LANDED', 'SPLASHED'] and self.soi_name in HOMEWORLDS:
-            progresses = [Progress.HOME_LANDED]
-        else:
-            logger.warning("no potential progress statuses for vessel: {}", self.vessel_id)
-            progresses = []
-        
-        return [
-            Vessel({
-                'uuid': self.vessel_id,
-                'igt_last_update': self.in_game_time,
-                'progress': progress.value})
-            for progress in progresses]
 
 class Vessel(Model):
     TABLENAME = 'vessel'
-    
+
     def __init__(self, rowobj):
-        '''
-        This should only ever be called by record_progress
-        '''
         # ksp's vessel ID
         self.uuid = rowobj['uuid']
         # when we last changed progress to a new value
         self.igt_last_update = rowobj['igt_last_update']
-        # our own version of KSP's "Situation"
-        self.progress = Progress(rowobj['progress'])
+        # TODO Move this to Progress, separate state ID value and ephemeral machine into diff attrs
+        # instantiate the state machine with last known state
+        if isinstance(rowobj.get('state'), MissionMachine):
+            self.state = rowobj['state']
+        else:
+            # convert string ID to initialized mm
+            self.state = MissionMachine(
+                getattr(MissionMachine, rowobj['state']))
 
     def as_db_row(self):
         return {
             'uuid': self.uuid,
             'igt_last_update': self.igt_last_update,
-            'progress': self.progress.value,
+            'state': self.state.configuration_values[0],
         }
-
-    @classmethod
-    def record_progress(cls, update):
-        '''
-        which display and transitions should be shown?
-        '''
-        try:
-            vessel = Vessel.find_one(uuid=update.vessel_id)
-        except ValueError:
-            # previously-unseen vessel id
-            vessel = None
-        
-        for new_vessel in update.to_vessel():
-            if not vessel:
-                # first time we're seeing this id, save it
-                logger.info('New vessel ID recorded: {}', update.vessel_id)
-                new_vessel.display = Display.FLIGHT
-                new_vessel.save()
-                return
-            if new_vessel.igt_last_update < vessel.igt_last_update:
-                # time went backward, assume we are reverting
-                logger.warning('Reverting progress for vessel ID {} to {}', update.vessel_id, new_vessel.progress)
-                # TODO: assign display
-                new_vessel.save()
-                return
-            if new_vessel.progress.value > vessel.progress.value:
-                # TODO: bug! this isn't a state machine, assumes that all
-                # previous progress values should always increase;
-                # leads to immediate incrementing when one Situation -> [>1 Progress]
-                # progress is increasing, we just transitioned
-                logger.warning('Incremented progress for vessel ID {} to {}', update.vessel_id, new_vessel.progress)
-                new_vessel.save()
-                return
-
-
-        # nothing changed or no potential progresses were returned

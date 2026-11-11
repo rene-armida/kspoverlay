@@ -5,3 +5,4 @@ gunicorn~=26.0.0
 tqdm~=4.70.1
 requests~=2.34.2
 loguru~=0.7.3
+python-statemachine~=3.2.2
