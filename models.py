@@ -10,21 +10,30 @@ from datetime import datetime
 from enum import StrEnum, Enum
 from itertools import chain
 from re import fullmatch
+from sys import stderr
 from uuid import uuid4
 
-
+# priorities can be any int
+DEFAULT_PRIORITY = 5
 # mean altitude of Rhode above TSB in meters
 RHODE_MEAN_ALT = 13338.2 * 1000 * 1000
 HOMEWORLDS = ['Kerbin', 'Rhode', 'Lua']
 STARS = ['Kerbol', 'The Sun', 'Sun', 'Tempus System Barycenter']
 
 def get_db(url=None, reset=False):
+    '''
+    return a Dataset instance.
+
+    tries to cache the instance into the Flask app.
+    '''
     if not url:
         url = current_app.config['db_file']
 
     if reset or 'db' not in g:
+        print('get_db reconecting', file=stderr)
         g.db = dataset.connect(f'sqlite:///{url}')
         g.sessionmaker = sessionmaker(bind=g.db.engine)
+
     return g.db
 
 def close_db():
@@ -40,6 +49,9 @@ def KTimeStamp_or_none(val):
 
 def GameStatus_or_none(val):
     return val and GameStatus(val) or None
+
+def int_or_none(val):
+    return val and int(val) or None
 
 def string_or_none(val):
     return val and str(val) or None
@@ -185,6 +197,11 @@ class Model:
             raise ValueError(f'no matching record: {kwargs}')
         return cls(found)
 
+    @classmethod
+    def delete_all(cls):
+        db = get_db()
+        db[cls.TABLENAME].delete()
+
     def as_db_row(self):
         '''
         return a database row - a dict - for storage
@@ -203,12 +220,32 @@ class Model:
 
     def as_json_dict(self):
         '''
-        turn into a dict with all contents serializable for JSON
+        turn into a dict with all contents serializable for JSON.
+
+        Uses as_db_row, which isn't great when transforms are run
+        during the init, e.g. splitting a list stored as a string.
         '''
         val = self.as_db_row()
         val['type'] = self.JSON_TYPE_NAME
         val['url'] = f'/{self.JSON_TYPE_NAME}/{self.uuid}'
         return val
+
+# data model notes
+# Mission 1:* Vessel
+# Vessel 1:* VesselProgress
+# Vessel contains state machine for individual vessels
+# but the overall "progress" as shown on screen is owned by Mission
+# VesselProgress is a log, many entries for each Vessel
+# Vessels get associated with a Mission via Matchers
+# once associated, that association isn't updated
+# this is usually ok - most vehicles are part of only one mission, 
+# and then that mission gets archived
+# archived missions aren't relevant to matching
+
+# 'display' is the view that the frontend should show
+# it is determined by:
+# - a vessel gets matched to a mission
+
 
 class Mission(Model):
     TABLENAME = 'mission'
@@ -218,6 +255,13 @@ class Mission(Model):
         super().__init__(row_obj)
         self._start = KTimestamp(row_obj['start'])
         self.name = row_obj['name']
+        self.steps = row_obj.get('steps', [])
+        if self.steps == '':
+            self.steps = []
+        if isinstance(self.steps, str):
+            self.steps = self.steps.split(';')
+        self.cur_step = int_or_none(row_obj.get('cur_step', 0))
+        self.archived = row_obj.get('archived', False)
 
     @property
     def start(self):
@@ -232,13 +276,41 @@ class Mission(Model):
         db_row.update({
             'start': self._start.time, # stored as a number
             'name': self.name,
+            'steps': ';'.join(self.steps),
+            'cur_step': self.cur_step,
+            'archived': bool(self.archived),
         })
         return db_row
+
+    def as_json_dict(self):
+        vals = super().as_json_dict()
+        vals['steps'] = self.steps
+        return vals
 
     @classmethod
     def by_start(cls):
         return cls.iter_all(order_by='start')
 
+class MatchFunction:
+    '''
+    returned by Matcher.match_functions
+
+    Callable, returns True if provided Update matches.
+    '''
+    def __init__(self, mission_uuid, priority, params):
+        self.mission_uuid = mission_uuid
+        self.priority = priority
+        self.params = params
+
+    def __call__(self, update):
+        is_match = True # require all present filters to match
+        vessel_name = self.params.get('vessel_name')
+        if vessel_name:
+            is_match = is_match and bool(fullmatch(vessel_name, update.vessel_name))
+        soi_name = self.params.get('soi_name')
+        if soi_name:
+            is_match = is_match and (update.soi_name == soi_name)
+        return is_match
 
 class Matcher(Model):
     TABLENAME = 'matcher'
@@ -248,16 +320,12 @@ class Matcher(Model):
     def __init__(self, row_obj):
         super().__init__(row_obj)
         self.mission_uuid = row_obj['mission_uuid']
-        self.vessel_name = row_obj['vessel_name']
-        self.soi_name = row_obj['soi_name']
+        self.vessel_name = row_obj.get('vessel_name')
+        self.soi_name = row_obj.get('soi_name')
+        self.priority = row_obj.get('priority') or DEFAULT_PRIORITY
 
-    def match(self, update):
-        is_match = True # require all present filters to match
-        if self.vessel_name:
-            is_match = is_match and bool(fullmatch(self.vessel_name, update.vessel_name))
-        if self.soi_name:
-            is_match = is_match and (update.soi_name == self.soi_name)
-        return is_match
+        if not any([self.vessel_name, self.soi_name]):
+            raise ValueError('must provide one of vessel_name, soi_name')
 
     def as_db_row(self):
         db_row = super().as_db_row()
@@ -265,8 +333,39 @@ class Matcher(Model):
             'mission_uuid': self.mission_uuid,
             'vessel_name': self.vessel_name,
             'soi_name': self.soi_name,
+            'priority': self.priority,
         })
         return db_row
+
+    @classmethod
+    def match_functions(cls):
+        '''
+        yield MatchFunctions for each valid Matcher
+        Matchers go invalid once their associated Mission is archived,
+        or if their Mission is missing (orphaned).
+        '''
+        db = get_db()
+        for row in db.query('''
+                SELECT 
+                    matcher.mission_uuid,
+                    matcher.vessel_name,
+                    matcher.soi_name,
+                    matcher.priority
+                FROM
+                    matcher INNER JOIN mission
+                    ON matcher.mission_uuid = mission.uuid
+                WHERE
+                    mission.archived = 0
+                ORDER BY
+                    matcher.priority ASC'''):
+            yield MatchFunction(
+                row['mission_uuid'],
+                row['priority'],
+                {
+                    'vessel_name': row['vessel_name'],
+                    'soi_name': row['soi_name'],
+                },
+            )
 
     @classmethod
     def iter_all(cls, **kwargs):
@@ -281,51 +380,57 @@ class MissionTransitionListener:
             MissionProgress.record(g.mission_uuid, g.in_game_time, target.id)
 
 
-class MissionProgress(Model):
+class VesselProgress(Model):
     '''
-    One:many log of mission state machine transitions
+    Log of mission state machine transitions for individual Vessels.
+
+    in_game_time is the earliest that the vessel reached that milestone
+    this allows for rollbacks checking IGT.
     '''
     TABLENAME = 'mission_progress'
     
     def __init__(self, row_obj):
         super().__init__(row_obj)
-        self.mission_uuid = row_obj['mission_uuid']
+        self.vessel_id = row_obj['vessel_id']
         self.in_game_time = row_obj['in_game_time']
         self.progress = row_obj['progress']
 
     def as_db_row(self):
         db_row = super().as_db_row()
         db_row.update({
-            'mission_uuid': self.mission_uuid,
+            'vessel_id': self.vessel_id,
             'in_game_time': self.in_game_time,
             'progress': self.progress,
         })
         return db_row
 
     @classmethod
-    def record(cls, mission_uuid, in_game_time, progress):
+    def record(cls, vessel_id, in_game_time, progress):
         '''
         associate mission and progress at igt. all args are required.
 
         try to avoid duplicate records. Note we're not using transactions.
         '''
-        if any(not i for i in [mission_uuid, in_game_time, progress]):
-            raise ValueError(f'invalid args: {mission_uuid}, {in_game_time}, {progress}')
+        if any(not i for i in [vessel_id, in_game_time, progress]):
+            raise ValueError(f'invalid args: {vessel_id}, {in_game_time}, {progress}')
 
-        if cls.find_one(mission_uuid=mission_uuid, progress=progress, _none_if_missing=True):
+        if cls.find_one(
+                vessel_id=vessel_id,
+                progress=progress,
+                _none_if_missing=True):
             # duplicate, ignore
+            # even if the IGT increases
             return
 
-        MissionProgress({
-            'mission_uuid': mission_uuid,
-            'in_game_time': in_game_time,
+        VesselProgress({
+            'vessel_id': vessel_id,
             'progress': progress,
+            'in_game_time': in_game_time,
         }).save()
-        # [(mp.mission_uuid, mp.in_game_time, mp.progress) for mp in MissionProgress.iter_all()]
 
-class MissionMachine(StateChart):
+class VesselMachine(StateChart):
     '''
-    state machine for transitions between Progress values
+    state machine for Vessel progress
     '''
     # states
     prelaunch = State(initial=True)
@@ -358,11 +463,6 @@ class MissionMachine(StateChart):
         | home_orbit_return.to(home_edl, cond="remote_landed_end")
         | home_edl.to(home_landed, cond="remote_edl_end")
     )
-
-    # TODO: revert guesses
-    # when IGT goes backward, we are forced to guess the prior state
-    # we can make some educated guesses
-    # all of these will use the same cond function to check IGT
 
     # listeners
     listeners = [MissionTransitionListener]
@@ -438,18 +538,6 @@ class Update(Model):
     '''
     TABLENAME = 'game_update'
     JSON_TYPE_NAME = 'update'
-    CHART_FIELDS = [
-        'in_game_time',
-        'roll',
-        'pitch',
-        'heading',
-        'velocity',
-        'velocity_h',
-        'velocity_v',
-        'altitude_terrain',
-        'altitude_sea_level',
-        'dv_last_stage',
-    ]
 
     def __init__(self, row_obj):
         '''
@@ -551,32 +639,35 @@ class Update(Model):
         except ValueError:
             return None
 
-    def dump_chart_fields(self, dumpfp):
-        dumpfp.write(
-            ','.join(str(getattr(self, attrname)) for attrname in self.CHART_FIELDS))
-        dumpfp.write('\n')
-
 
 class Vessel(Model):
+    '''
+    track progress per Vessel, which is KSP's identifier for a single vehicle
+
+    Each mission has multiple Vessels
+    '''
     TABLENAME = 'vessel'
+    JSON_TYPE_NAME = 'vessel'
 
     def __init__(self, rowobj):
         # ksp's vessel ID
         self.uuid = rowobj['uuid']
         # when we last changed progress to a new value
         self.igt_last_update = rowobj['igt_last_update']
-        # TODO Move this to Progress, separate state ID value and ephemeral machine into diff attrs
         # instantiate the state machine with last known state
-        if isinstance(rowobj.get('state'), MissionMachine):
+        if isinstance(rowobj.get('state'), VesselMachine):
             self.state = rowobj['state']
         else:
             # convert string ID to initialized mm
-            self.state = MissionMachine(
-                getattr(MissionMachine, rowobj['state']))
+            self.state = VesselMachine(
+                getattr(VesselMachine, rowobj['state']))
+        # optional: mission id
+        self.mission_uuid = rowobj.get('mission_uuid')
 
     def as_db_row(self):
         return {
             'uuid': self.uuid,
             'igt_last_update': self.igt_last_update,
             'state': self.state.configuration_values[0],
+            'mission_uuid': self.mission_uuid,
         }

@@ -1,17 +1,14 @@
+from fixtures import *
+
 import models
-import pytest
+from pytest import fixture, mark
 
 import kspoverlay
 
 from time import time
 from uuid import uuid4
 
-@pytest.fixture
-def app_ctx():
-    with kspoverlay.app.app_context() as the_app:
-        yield the_app
-
-@pytest.mark.parametrize(
+@mark.parametrize(
     "test_input,expected",
     [
         (0,                             "Y1D001 0:00:00"),
@@ -24,19 +21,19 @@ def app_ctx():
         (((60 * 60 * 6) - 2),           "Y1D001 5:59:58"),
         ((60 * 60 * 6 * 426 * 10) + 1,  "Y11D001 0:00:01"),
     ])
-def test_KTimestamp_asdatetime(test_input, expected):
+def test_KTimestamp_asdatetime(app_ctx, test_input, expected):
     ts = models.KTimestamp(test_input)
     assert ts.as_datetime() == expected
 
-def test_KTimestamp_asdatetime_separator():
+def test_KTimestamp_asdatetime_separator(app_ctx):
     ts = models.KTimestamp(1)
     assert ts.as_datetime(separator='|') == 'Y1D001|0:00:01'
 
-def test_KTimestamp_sub():
+def test_KTimestamp_sub(app_ctx):
     t1 = models.KTimestamp(100) - models.KTimestamp(40)
     assert t1.time == 60
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "test_input,expected",
     [
         (0,                             "0:00:00"),
@@ -49,11 +46,11 @@ def test_KTimestamp_sub():
         (((60 * 60 * 6) - 2),           "5:59:58"),
         ((60 * 60 * 6 * 426 * 10) + 1,  "10Y 0D 0H"),
     ])
-def test_KTimestamp_asinterval(test_input, expected):
+def test_KTimestamp_asinterval(app_ctx, test_input, expected):
     ts = models.KTimestamp(test_input)
     assert expected == ts.as_interval()
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "test_input,expected",
     [
         ('Y1D001 0:00:00', 0),
@@ -62,7 +59,7 @@ def test_KTimestamp_asinterval(test_input, expected):
         ('Y2D001 0:00:00', models.KTimeParts.SECS_PER_YEAR),
         ('Y1D2 0:01:02',   models.KTimeParts.SECS_PER_DAY + 62),
     ])
-def test_KTimestamp_parse(test_input, expected):
+def test_KTimestamp_parse(app_ctx, test_input, expected):
     actual = models.KTimestamp.parse(test_input)
     assert expected == actual
 
@@ -87,7 +84,10 @@ def test_Mission_as_json_dict(app_ctx):
         'type': 'mission',
         'url': f'/mission/{m1.uuid}',
         'name': 'M1',
-        'start': 123,
+        'start': 123.0,
+        'archived': False,
+        'cur_step': None,
+        'steps': [],
     } == actual
 
 def _update(vessel_name, soi_name, **kwargs):
@@ -96,27 +96,60 @@ def _update(vessel_name, soi_name, **kwargs):
     kwargs['soi_name'] = soi_name
     return models.Update(kwargs)
 
-def test_soi_matcher(app_ctx):
-    s1 = models.Matcher({'mission_uuid': str(uuid4()), 'vessel_name': None, "soi_name": "Kerbin"})
-    assert s1.match(_update("test", "Kerbin"))
-    assert not s1.match(_update("t", "Duna"))
-    s1.save()
+@fixture
+def matcher_setup():
+    m1 = models.Mission({'name': 'M1', 'start': 123})
+    m1.save()
 
-    s2 = models.Matcher({'mission_uuid': str(uuid4()), 'vessel_name': None, "soi_name": "Eeloo"})
-    s2.save()
+    m2 = models.Mission({'name': 'M2', 'start': 4, 'archived': True})
+    m2.save()
 
-    u = _update("test", "Dres")
-    assert not any(
-        matcher.match(u) for matcher in models.Matcher.iter_all())
+    matcher1 = models.Matcher({'mission_uuid': m1.uuid, "soi_name": "Kerbin"})
+    matcher1.save()
 
-def test_VesselMatcher(app_ctx):
-    v1 = models.Matcher({'mission_uuid': str(uuid4()), "vessel_name": "Launch.*", 'soi_name': None})
-    assert v1.match(_update("Launch Debris", "Kerbin"))
-    assert not v1.match(_update("Station", "Duna"))
+    matcher2 = models.Matcher({'mission_uuid': m1.uuid, "soi_name": "Eeloo"})
+    matcher2.save()
+
+    matcher3 = models.Matcher({'mission_uuid': m2.uuid, "soi_name": "Kerbin"})
+    matcher3.save()
+
+    matcher4 = models.Matcher({'mission_uuid': m1.uuid, 'vessel_name': 'Launch.*',})
+    matcher4.save()
+
+    yield
+
+    models.Mission.delete_all()
+    models.Matcher.delete_all()
+
+def test_soi_matcher(app_ctx, matcher_setup):
+    m1 = models.Mission.find_one(name='M1')
+    assert not m1.archived
+    m2 = models.Mission.find_one(name='M2')
+    assert m2.archived
     
     u = _update("test", "Dres")
     assert not any(
-        matcher.match(u) for matcher in models.Matcher.iter_all())
+        match_fn(u) for match_fn in models.Matcher.match_functions())
+
+    u = _update("test", "Kerbin")
+    matching = [
+        match_fn for match_fn in models.Matcher.match_functions()
+        if match_fn(u)]
+    assert len(matching) == 1
+    assert matching[0].mission_uuid == m1.uuid
+
+def test_VesselMatcher(app_ctx, matcher_setup):
+    v1 = models.Matcher({'mission_uuid': str(uuid4()), "vessel_name": "Launch.*", 'soi_name': None})
+    
+    assert any(
+        match_fn(_update("Launch Debris", "Duna")) for match_fn
+        in models.Matcher.match_functions())
+    assert not any(
+        match_fn(_update("Station", "Duna")) for match_fn
+        in models.Matcher.match_functions())
+    assert not any(
+        match_fn(_update("Station Debris", "Duna")) for match_fn
+        in models.Matcher.match_functions())
 
 def test_Update_latest(app_ctx):
     for in_game_time in [3.930, 10, 8.1]:

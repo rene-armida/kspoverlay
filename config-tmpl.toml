@@ -5,9 +5,8 @@ SECRET_KEY = "your-key-here"
 db_file = ":memory:"
 # db_file = db.sqlite
 
+# leave blank to disable
 request_log = request.log
-# set to activate logging chart data
-# chart_log = chart.log
 
 # application logic logging
 app_log = app.log

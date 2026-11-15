@@ -1,11 +1,14 @@
 from datetime import datetime
 from enum import StrEnum
 import json
-import tomllib
+import os
+from tempfile import mktemp
 from traceback import print_exc
+from uuid import uuid4
 
 from flask import Flask, flash, g, render_template, redirect, request, Response
 from loguru import logger
+import tomllib
 import werkzeug.exceptions
 
 from models import *
@@ -17,11 +20,51 @@ class Display(StrEnum):
     LAUNCH = 'launch'
 
 app = Flask(__name__)
-# load config, let exceptions propagate
-# this doesn't work:
-# app.config.from_file("config.toml", load=tomllib.load, text=False)
-with open('config.toml', 'rb') as config_fp:
-    app.config.update(tomllib.load(config_fp))
+
+def _apply_conf(flask_app):
+    '''
+    load config from file, provide defaults where necessary
+
+    require an environment var in order to differentiate from runs under test;
+    otherwise db caching causes db url confusion and we end up modifying the 
+    persistent db unintentionally.
+
+    TODO this isn't perfect: the app assumes it's running under test
+    unless redirected by environment variable. Better to have the test infra
+    divert away, and let missing config errors propagate.
+    '''
+    # load config, let exceptions propagate
+    # this doesn't work:
+    # app.config.from_file("config.toml", load=tomllib.load, text=False)
+
+    conf_path = os.environ.get('KSPOVERLAY_CONF')
+    if not conf_path:
+        conf = {
+            'db_file': ':memory:',
+            'request_log': ':temp:',
+            'app_log': ':temp:',
+            'SECRET_KEY': str(uuid4()),
+        }
+    else:
+        with open(conf_path, 'rb') as config_fp:
+            conf = tomllib.load(config_fp)
+    flask_app.config.update(conf)
+_apply_conf(app)
+
+# log functions
+def _log_functor(config_key):
+    def get_log():
+        '''
+        return path to requested log file
+        '''
+        if app.config[config_key] == ':temp:':
+            # TODO cleanup these log files on shutdown
+            app.config[config_key] = mktemp(prefix=config_key, suffix='.log')
+        return app.config[config_key]
+    return get_log
+
+get_request_log = _log_functor('request_log')
+get_app_log = _log_functor('app_log')
 
 # custom application logging
 def short_uuid(uuid):
@@ -29,7 +72,21 @@ def short_uuid(uuid):
         return '?'
     return uuid[:6] + '..' + uuid[-6:]
 
-logger.add(app.config['app_log'], format="{time} | {level} | {module}:{function}:{line} - {message} - vessel {extra[vessel_id]} mission {extra[mission_uuid]}")
+def format_log(record):
+    '''
+    return format string for loguru record object
+    '''
+    fmt = "{time} | {level} | {module}:{function}:{line} - {message}"
+    extra = record.get('extra', {})
+    if extra.get('vessel_id'):
+        extra['vessel_id_short'] = short_uuid(extra['vessel_id'])
+        fmt += ' - vsl {vessel_id_short}' 
+    if extra.get('mission_uuid'):
+        extra['mission_uuid_short'] = short_uuid(extra['mission_uuid'])
+        fmt += ' - msn {mission_uuid_short}'
+    return fmt
+
+logger.add(get_app_log(), format=format_log)
 
 # avoid db concurrency errors
 # see https://www.iditect.com/faq/python/using-sqlalchemy-session-from-flask-raises-quotsqlite-objects-created-in-a-thread-can-only-be-used-in-that-same-threadquot.html
@@ -142,6 +199,30 @@ def matcher_delete(matcher_uuid):
     matcher.delete()
     return ('', 200)
 
+@app.route("/vessel/<vessel_id>", methods=["GET"])
+def vessel_get(vessel_id):
+    vessel = Vessel.find_one(uuid=vessel_id)
+    if not vessel:
+        return ('', 404)
+    return vessel.as_json_dict()
+
+@app.route("/vessel/<vessel_id>", methods=["PUT"])
+def vessel_put(vessel_id):
+    vessel = vessel.find_one(uuid=vessel_id)
+    if not vessel:
+        return ('', 404)
+    for fn in ['igt_last_update', 'state', 'mission_uuid']:
+        if fn in request.json:
+            setattr(vessel, fn, request.json[fn])
+    vessel.save()
+    return ('', 200)
+
+@app.route("/vessel/<matcher_uuid>", methods=["DELETE"])
+def vessel_delete(vessel_id):
+    vessel = Vessel.find_one(uuid=vessel_id)
+    vessel.delete()
+    return ('', 200)
+
 @app.route("/mission")
 def mission_list():
     return [mission.as_json_dict() for mission in Mission.iter_all()]
@@ -176,13 +257,13 @@ def update_post():
     plugin is sending us latest game data
     '''
     # log all requests, capture error output if an exception occurs
-    with open(app.config['request_log'], 'a') as log_fp:
+    with open(get_request_log(), 'a') as log_fp:
         # start of line
         log_fp.write('[' + datetime.now().strftime('%c') + '] ')
-    with open(app.config['request_log'], 'ab') as log_fp:
+    with open(get_request_log(), 'ab') as log_fp:
         # request content is binary, dump as-is
         log_fp.write(request.get_data())
-    with open(app.config['request_log'], 'a') as log_fp:
+    with open(get_request_log(), 'a') as log_fp:
         log_fp.write('\n')
         try:
             request_json = request.get_json()
@@ -201,14 +282,10 @@ def update_post():
                 msg += f". {exc.__cause__}"
             return (msg, 400)
 
-    if app.config.get('chart_log'):
-        with open(app.config['chart_log'], 'a') as chart_fp:
-            update.dump_chart_fields(chart_fp)
-
     # find mission
     mission_uuid = None
-    for matcher in Matcher.iter_all():
-        if matcher.match(update):
+    for matcher in Matcher.match_functions():
+        if matcher(update):
             try:
                 mission = Mission.find_one(uuid=matcher.mission_uuid)
             except ValueError:
@@ -227,12 +304,11 @@ def update_post():
             'mission_uuid': mission_uuid,
             'uuid': update.vessel_id,
             'igt_last_update': update.in_game_time,
-            'state': MissionMachine(),
+            'state': VesselMachine(),
         })
 
     with logger.contextualize(
-            mission_uuid=short_uuid(mission_uuid),
-            vessel_id=short_uuid(update.vessel_id)):
+            mission_uuid=mission_uuid, vessel_id=update.vessel_id):
         # give state machine callbacks access to some important vars
         g.mission_uuid = mission_uuid
         g.in_game_time = update.in_game_time
