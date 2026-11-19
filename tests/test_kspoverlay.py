@@ -1,6 +1,6 @@
 from fixtures import *
 
-from models import KTimestamp, Mission, Matcher, get_db
+from models import KTimestamp, Mission, Matcher, Update, get_db
 from kspoverlay import app
 
 from datetime import datetime
@@ -87,6 +87,8 @@ def test_request_log(app_ctx, request_data, expected_tokens):
 
 
 def test_post_update(app_ctx):
+	Mission.delete_all()
+	Matcher.delete_all()
 	m1 = Mission({"name": "m1", 'start': 100, 'last_update': 200})
 	m1.save()
 	m2 = Mission({"name": "m2", 'start': 150, 'last_update': 202})
@@ -102,6 +104,7 @@ def test_post_update(app_ctx):
 		"mission_uuid": m2.uuid,
 	}).save()
 	assert 2 == len(list(Matcher.match_functions()))
+	assert 2 == len(list(Mission.iter_all()))
 
 	client = app.test_client()
 	resp = client.post(
@@ -139,10 +142,11 @@ def test_post_update(app_ctx):
 	# status 202 indicates not matched to a Mission
 	assert resp.status_code == 202, AssertMsg(resp.text)
 
+	update_dt = '2026-07-03T21:25:56.778929+00:00'
 	resp = client.post(
 		"/update",
 		json={
-			"irl_time": '2026-07-03T21:25:56.778929+00:00',
+			"irl_time": update_dt,
 			"status": "flight",
 			"in_game_time": 122.1,
 			"soi_name": "Kerbin",
@@ -151,8 +155,9 @@ def test_post_update(app_ctx):
 	)
 	assert 200 == resp.status_code
 
-	resp = client.get("/update/_latest")
-	assert 200 == resp.status_code
+	update = Update.get_latest()
+	assert update.irl_time == datetime.fromisoformat(update_dt).astimezone()
+	assert update.soi_name == 'Kerbin'
 	
 	resp = client.post(
 		"/update",

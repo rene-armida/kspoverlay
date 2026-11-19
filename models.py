@@ -30,13 +30,16 @@ def get_db(url=None, reset=False):
         url = current_app.config['db_file']
 
     if reset or 'db' not in g:
-        print('get_db reconecting', file=stderr)
+        print(f'get_db reconecting to {url}', file=stderr)
         g.db = dataset.connect(f'sqlite:///{url}')
         g.sessionmaker = sessionmaker(bind=g.db.engine)
 
     return g.db
 
 def close_db():
+    if 'session' in g:
+        g.session.close()
+
     if 'db' in g:
         g.db.close()
         del g.db
@@ -114,19 +117,17 @@ class KTimestamp:
         return f'Y{timeparts.year:n}D{timeparts.day:03n}{separator}{timeparts.hour:01n}:{timeparts.minute:02n}:{timeparts.second:02.0f}'
 
     @classmethod
-    def parse(cls, datestring, strict=False):
+    def parse(cls, datestring):
         '''
         'Y1D100 HH:MM:SS' -> int
         '''
         if datestring.isdigit():
             return cls(int(datestring))
         match = fullmatch(
-            r'[yY](?P<year>\d+)[dD](?P<day>\d+)\s+(?P<hour>\d):(?P<minute>\d?\d):?(?P<second>\d?\d)?',
+            r'[yY](?P<year>\d+)[dD](?P<day>\d+)\s+(?P<hour>\d):(?P<minute>\d?\d):?(?P<second>\d?\d)?(?P<milisec>\.\d+)?',
             datestring)
         if not match:
-            if strict:
-                raise ValueError(f'unable to parse: {datestring}')
-            return None
+            raise ValueError(f'unable to parse: {datestring}')
         # year and day start counting at 1
         yearnum = int(match.group('year')) - 1
         daynum = int(match.group('day')) - 1
@@ -135,7 +136,8 @@ class KTimestamp:
             (daynum * KTimeParts.SECS_PER_DAY) + 
             (int(match.group('hour')) * KTimeParts.SECS_PER_HOUR) + 
             (int(match.group('minute')) * 60) + 
-            (int(match.group('second')))
+            (int(match.group('second'))) + 
+            (float(match.group('milisec') or 0))
         )
 
     def timeparts(self):
@@ -536,7 +538,7 @@ class Update(Model):
     This can quickly balloon in size and store large numbers of records,
     but only the most recent is important.
     '''
-    TABLENAME = 'game_update'
+    TABLENAME = 'update'
     JSON_TYPE_NAME = 'update'
 
     def __init__(self, row_obj):
@@ -546,7 +548,7 @@ class Update(Model):
         super().__init__(row_obj)
         self.irl_time = row_obj['irl_time']
         self.game_status = GameStatus_or_none(row_obj.get('game_status'))
-        self._in_game_time = float_or_none(row_obj.get('in_game_time'))
+        self.in_game_time = row_obj.get('in_game_time')
         self.vessel_name = string_or_none(row_obj.get('vessel_name'))
         self.vessel_id = string_or_none(row_obj.get('vessel_id'))
         self.soi_name = string_or_none(row_obj.get('soi_name'))
@@ -608,10 +610,16 @@ class Update(Model):
         '''
         accept floats and ints directly, otherwise parse
         '''
-        if isinstance(val, (float, int)):
-            self._irl_time = val
-        else:
-            self._irl_time = datetime.fromisoformat(val)
+        # if isinstance(val, (float, int)):
+            # TODO: remove this? shouldn't happen
+            # raise ValueError('use datetimes instead')
+        if isinstance(val, str):
+            self._irl_time = datetime.fromisoformat(val).astimezone()
+            return
+        
+        if not isinstance(val, datetime):
+            raise ValueError(f'expected datetime, got: {type(val)}')
+        self._irl_time = val.astimezone()
 
     @property
     def in_game_time(self):
@@ -629,8 +637,9 @@ class Update(Model):
         if val is None:
             self._in_game_time = None
             return
+        self._in_game_time = KTimestamp.parse(val)
 
-        self._in_game_time = datetime.fromisoformat(val)
+        # self._in_game_time = datetime.fromisoformat(val)
     
     @classmethod
     def get_latest(cls):

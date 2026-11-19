@@ -1,1 +1,1 @@
-flask --app kspoverlay shell
+KSPOVERLAY_CONF=config-dev.toml flask --app kspoverlay shell

@@ -5,6 +5,7 @@ from pytest import fixture, mark
 
 import kspoverlay
 
+from datetime import datetime, UTC
 from time import time
 from uuid import uuid4
 
@@ -53,11 +54,13 @@ def test_KTimestamp_asinterval(app_ctx, test_input, expected):
 @mark.parametrize(
     "test_input,expected",
     [
-        ('Y1D001 0:00:00', 0),
-        ('Y1D1 0:00:00',   0),
-        ('Y1D2 0:00:00',   models.KTimeParts.SECS_PER_DAY),
-        ('Y2D001 0:00:00', models.KTimeParts.SECS_PER_YEAR),
-        ('Y1D2 0:01:02',   models.KTimeParts.SECS_PER_DAY + 62),
+        ('Y1D001 0:00:00',   0),
+        ('Y1D1 0:00:00',     0),
+        ('Y1D2 0:00:00',     models.KTimeParts.SECS_PER_DAY),
+        ('Y2D001 0:00:00',   models.KTimeParts.SECS_PER_YEAR),
+        ('Y1D2 0:01:02',     models.KTimeParts.SECS_PER_DAY + 62),
+        ('Y1D1 0:00:00.123', 0.123),
+        ('Y1D1 0:00:00.1',   0.1), # diff precision
     ])
 def test_KTimestamp_parse(app_ctx, test_input, expected):
     actual = models.KTimestamp.parse(test_input)
@@ -91,13 +94,15 @@ def test_Mission_as_json_dict(app_ctx):
     } == actual
 
 def _update(vessel_name, soi_name, **kwargs):
-    kwargs['irl_time'] = time()
+    kwargs['irl_time'] = datetime.now().astimezone()
     kwargs['vessel_name'] = vessel_name
     kwargs['soi_name'] = soi_name
     return models.Update(kwargs)
 
 @fixture
 def matcher_setup():
+    models.Mission.delete_all()
+    models.Matcher.delete_all()
     m1 = models.Mission({'name': 'M1', 'start': 123})
     m1.save()
 
@@ -118,8 +123,12 @@ def matcher_setup():
 
     yield
 
-    models.Mission.delete_all()
-    models.Matcher.delete_all()
+    m1.delete()
+    m2.delete()
+    matcher1.delete()
+    matcher2.delete()
+    matcher3.delete()
+    matcher4.delete()
 
 def test_soi_matcher(app_ctx, matcher_setup):
     m1 = models.Mission.find_one(name='M1')
@@ -151,9 +160,30 @@ def test_VesselMatcher(app_ctx, matcher_setup):
         match_fn(_update("Station Debris", "Duna")) for match_fn
         in models.Matcher.match_functions())
 
+
+@mark.parametrize(
+    "irl_time,igt_input,igt_expected",
+    [
+        (datetime.now().astimezone(), 102.1, 102.1), # datetime object for irl time
+        (datetime.now().astimezone(), 'Y1D1 1:05:30.0', 3930.0), # igt as a string
+    ]
+)
+def test_Update_saveload(app_ctx, irl_time, igt_input, igt_expected):
+    '''
+    time fields survive save/load cycles
+    '''
+    models.Update({'irl_time': irl_time, 'in_game_time': igt_input}).save()
+    update = models.Update.find_one()
+    assert irl_time == update.irl_time
+    assert igt_expected == update.in_game_time
+
+
 def test_Update_latest(app_ctx):
+    '''
+    only most recent update is saved
+    '''
     for in_game_time in [3.930, 10, 8.1]:
-        models.Update({'irl_time': time(), 'in_game_time': in_game_time}).save()
+        models.Update({'irl_time': datetime.now(), 'in_game_time': in_game_time}).save()
     
     actual = models.Update.get_latest()
     assert actual.in_game_time == 8.1

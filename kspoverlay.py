@@ -94,15 +94,10 @@ logger.add(get_app_log(), format=format_log)
 
 @app.before_request
 def before_request():
-    # run the db connection just to get the app to create a sessionmaker
-    get_db()
     g.session = g.sessionmaker()
 
 @app.after_request
 def after_request(response):
-    if 'session' in g:
-        g.session.close()
-
     close_db()
     return response
 
