@@ -30,7 +30,6 @@ def get_db(url=None, reset=False):
         url = current_app.config['db_file']
 
     if reset or 'db' not in g:
-        print(f'get_db reconecting to {url}', file=stderr)
         g.db = dataset.connect(f'sqlite:///{url}')
         g.sessionmaker = sessionmaker(bind=g.db.engine)
 
