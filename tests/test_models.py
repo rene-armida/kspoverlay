@@ -5,7 +5,7 @@ from pytest import fixture, mark
 
 import kspoverlay
 
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timedelta
 from time import time
 from uuid import uuid4
 
@@ -93,12 +93,6 @@ def test_Mission_as_json_dict(app_ctx):
         'steps': [],
     } == actual
 
-def _timedelta_seconds(td):
-    '''
-    return microseconds precision float from a timedelta
-    '''
-    return td.seconds + (td.microseconds * .000001)
-
 def _update(vessel_name, soi_name, **kwargs):
     epoch = datetime.fromisoformat('2026-11-19T07:31:22.406822-08:00')
     if 'in_game_time' in kwargs:
@@ -107,12 +101,12 @@ def _update(vessel_name, soi_name, **kwargs):
             # reminder to ourselves when reverting
             raise ValueError('specify in_game_time using timedelta')
         kwargs['irl_time'] = epoch + diff
-        kwargs['in_game_time'] = _timedelta_seconds(diff)
+        kwargs['in_game_time'] = diff.total_seconds()
     else:
         now = datetime.now().astimezone()
         diff = now - epoch
         kwargs['irl_time'] = epoch + diff
-        kwargs['in_game_time'] = _timedelta_seconds(diff)
+        kwargs['in_game_time'] = diff.total_seconds()
     kwargs['vessel_name'] = vessel_name
     kwargs['soi_name'] = soi_name
     return models.Update(kwargs)
@@ -223,3 +217,31 @@ def test_Update_latest(app_ctx):
     assert actual.in_game_time == 8.1
 
 
+def test_Vessel_saveload(app_ctx):
+    '''
+    ensure Vessel data survives a save+load cycle
+    '''
+    vid = str(uuid4())
+    mid = str(uuid4())
+    v = models.Vessel({
+        'uuid': vid, 'igt_last_update': 100, 'mission_uuid': mid})
+    assert v.state.configuration_values[0] == 'prelaunch'
+    v.save()
+
+    v = models.Vessel.find_one(uuid=vid)
+    assert v.state.configuration_values[0] == 'prelaunch'
+    assert v.uuid == vid
+    assert v.mission_uuid == mid
+    assert v.igt_last_update == 100.0
+
+    v.state.advance(
+        _update('test', 'Kerbin', in_game_time=timedelta(seconds=1.5), situation='FLYING'))
+    assert v.state.configuration_values[0] == 'launch'
+    v.save()
+
+    v = models.Vessel.find_one(uuid=vid)
+    assert 'launch' == v.state.configuration_values[0]
+    assert v.uuid == vid
+    assert v.mission_uuid == mid
+    # abstraction leak: the state machine doesn't update the Vessel, only VesselProgress
+    assert v.igt_last_update == 100

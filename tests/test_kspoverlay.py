@@ -71,7 +71,7 @@ test_request_log_testdata = [
 	# no 'Status'
 	# ({"date": '2026-07-03T21:25:56.778929+00:00'}, ['TypeError', 'Status']),
 	# irl_time is unrecognizeable
-	({"irl_time": "abc"}, ['ValueError', 'irl_time']),
+	({"irl_time": "abc"}, ['ValueError', 'isoformat', 'irl_time']),
 ]
 
 @mark.parametrize('request_data,expected_tokens', test_request_log_testdata)
@@ -83,7 +83,7 @@ def test_request_log(app_ctx, request_data, expected_tokens):
 	with open(app.config['request_log']) as log_fp:
 		content = log_fp.read()
 		for expected_token in expected_tokens:
-			assert expected_token in content, content
+			assert expected_token in content
 
 
 def test_post_update(app_ctx):

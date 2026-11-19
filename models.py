@@ -670,6 +670,52 @@ class Update(Model):
         except ValueError:
             return None
 
+    @classmethod
+    def put_latest(cls, vals):
+        update = Update(vals)
+        
+        try:
+            vessel = Vessel.find_one(uuid=update.vessel_id)
+        except ValueError:
+            # TODO: why doesn't this message run?
+            logger.warning('previously-unseen vessel', vessel_id=update.vessel_id)
+            vessel = Vessel({
+                'uuid': update.vessel_id,
+                'igt_last_update': update.in_game_time,
+                'state': VesselMachine(),
+            })
+
+        if not vessel.mission_uuid:
+            # vessel hasn't been associated with a mission, do matcher searchh
+            for matcher in Matcher.match_functions():
+                if matcher(update):
+                    try:
+                        mission = Mission.find_one(uuid=matcher.mission_uuid)
+                    except ValueError as root_exc:
+                        # explain this ValueError to be helpful
+                        raise ValueError(f'mission {matcher.mission_uuid} referenced by matcher {matcher.uuid} does not exist') from root_exc
+                    vessel.mission_uuid = mission.uuid
+                    logger.warning(
+                        'associating vessel with mission', 
+                        vessel_id=update.vessel_id, 
+                        mission_uuid=vessel.mission_uuid)
+                    break
+        
+        # TODO handle IGT reversions
+        # if IGT goes backwards, restore recorded state
+
+        with logger.contextualize(
+                mission_uuid=vessel.mission_uuid, vessel_id=update.vessel_id):
+            # give state machine callbacks access to some important vars
+            g.mission_uuid = vessel.mission_uuid
+            g.in_game_time = update.in_game_time # TODO remove this, it's part of the update
+            vessel.state.advance(update=update)
+        update.save()
+
+        vessel.igt_last_update = update.in_game_time
+        vessel.save()
+        return bool(vessel.mission_uuid)
+
 
 class Vessel(Model):
     '''
@@ -688,10 +734,12 @@ class Vessel(Model):
         # instantiate the state machine with last known state
         if isinstance(rowobj.get('state'), VesselMachine):
             self.state = rowobj['state']
-        else:
+        elif rowobj.get('state'):
             # convert string ID to initialized mm
-            self.state = VesselMachine(
-                getattr(VesselMachine, rowobj['state']))
+            self.state = VesselMachine()
+            self.state.current_state_value = rowobj['state']
+        else:
+            self.state = VesselMachine()
         # optional: mission id
         self.mission_uuid = rowobj.get('mission_uuid')
 

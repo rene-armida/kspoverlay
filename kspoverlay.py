@@ -261,58 +261,16 @@ def update_post():
             logger.error('Client sent invalid content, ignoring')
             return ('Invalid JSON content', 415)
 
+        # status code indicates if we matched
         try:
-            update = Update(request_json)
+            return ('', 200 if Update.put_latest(request_json) else 202)
         except Exception as exc:
-            log_fp.write('ERROR processing last request: ')
             print_exc(file=log_fp)
 
             msg = f'Invalid update data. {exc}'
             if exc.__cause__:
                 msg += f". {exc.__cause__}"
             return (msg, 400)
-
-    try:
-        vessel = Vessel.find_one(uuid=update.vessel_id)
-    except ValueError:
-        # TODO: why doesn't this message run?
-        logger.warning('previously-unseen vessel', vessel_id=update.vessel_id)
-        vessel = Vessel({
-            'uuid': update.vessel_id,
-            'igt_last_update': update.in_game_time,
-            'state': VesselMachine(),
-        })
-
-    if not vessel.mission_uuid:
-        # vessel hasn't been associated with a mission, do matcher searchh
-        for matcher in Matcher.match_functions():
-            if matcher(update):
-                try:
-                    mission = Mission.find_one(uuid=matcher.mission_uuid)
-                except ValueError:
-                    # broken reference
-                    return (f'Missing referenced mission id: {matcher.mission_uuid}', 500)
-                vessel.mission_uuid = mission.uuid
-                logger.warning(
-                    'associating vessel with mission', 
-                    vessel_id=update.vessel_id, 
-                    mission_uuid=vessel.mission_uuid)
-                break
-    
-    # TODO handle IGT reversions
-    # if IGT goes backwards, restore recorded state
-
-    with logger.contextualize(
-            mission_uuid=vessel.mission_uuid, vessel_id=update.vessel_id):
-        # give state machine callbacks access to some important vars
-        g.mission_uuid = vessel.mission_uuid
-        g.in_game_time = update.in_game_time # TODO remove this, it's part of the update
-        vessel.state.advance(update=update)
-    update.save()
-    vessel.save()
-
-    # status code indicates if we matched
-    return ('', 200 if vessel.mission_uuid else 202)
 
 
 @app.route("/_display")
