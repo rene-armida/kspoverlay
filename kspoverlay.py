@@ -67,11 +67,6 @@ get_request_log = _log_functor('request_log')
 get_app_log = _log_functor('app_log')
 
 # custom application logging
-def short_uuid(uuid):
-    if not uuid:
-        return '?'
-    return uuid[:6] + '..' + uuid[-6:]
-
 def format_log(record):
     '''
     return format string for loguru record object
@@ -79,11 +74,10 @@ def format_log(record):
     fmt = "{time} | {level} | {module}:{function}:{line} - {message}"
     extra = record.get('extra', {})
     if extra.get('vessel_id'):
-        extra['vessel_id_short'] = short_uuid(extra['vessel_id'])
-        fmt += ' - vsl {vessel_id_short}' 
+        fmt += ' - vsl {vessel_id}' 
     if extra.get('mission_uuid'):
-        extra['mission_uuid_short'] = short_uuid(extra['mission_uuid'])
-        fmt += ' - msn {mission_uuid_short}'
+        fmt += ' - msn {mission_uuid}'
+    fmt += "\n{exception}"
     return fmt
 
 logger.add(get_app_log(), format=format_log)
@@ -94,6 +88,7 @@ logger.add(get_app_log(), format=format_log)
 
 @app.before_request
 def before_request():
+    get_db()
     g.session = g.sessionmaker()
 
 @app.after_request
@@ -277,45 +272,48 @@ def update_post():
                 msg += f". {exc.__cause__}"
             return (msg, 400)
 
-    # find mission
-    mission_uuid = None
-    for matcher in Matcher.match_functions():
-        if matcher(update):
-            try:
-                mission = Mission.find_one(uuid=matcher.mission_uuid)
-            except ValueError:
-                # broken reference
-                return (f'Missing referenced mission id: {matcher.mission_uuid}', 500)
-            mission_uuid = mission.uuid
-            break
-
-
     try:
         vessel = Vessel.find_one(uuid=update.vessel_id)
     except ValueError:
         # TODO: why doesn't this message run?
-        logger.warning('previously-unseen vessel', vessel_id=update.vessel_id, mission_id=mission_uuid)
+        logger.warning('previously-unseen vessel', vessel_id=update.vessel_id)
         vessel = Vessel({
-            'mission_uuid': mission_uuid,
             'uuid': update.vessel_id,
             'igt_last_update': update.in_game_time,
             'state': VesselMachine(),
         })
 
+    if not vessel.mission_uuid:
+        # vessel hasn't been associated with a mission, do matcher searchh
+        for matcher in Matcher.match_functions():
+            if matcher(update):
+                try:
+                    mission = Mission.find_one(uuid=matcher.mission_uuid)
+                except ValueError:
+                    # broken reference
+                    return (f'Missing referenced mission id: {matcher.mission_uuid}', 500)
+                vessel.mission_uuid = mission.uuid
+                logger.warning(
+                    'associating vessel with mission', 
+                    vessel_id=update.vessel_id, 
+                    mission_uuid=vessel.mission_uuid)
+                break
+    
+    # TODO handle IGT reversions
+    # if IGT goes backwards, restore recorded state
+
     with logger.contextualize(
-            mission_uuid=mission_uuid, vessel_id=update.vessel_id):
+            mission_uuid=vessel.mission_uuid, vessel_id=update.vessel_id):
         # give state machine callbacks access to some important vars
-        g.mission_uuid = mission_uuid
-        g.in_game_time = update.in_game_time
+        g.mission_uuid = vessel.mission_uuid
+        g.in_game_time = update.in_game_time # TODO remove this, it's part of the update
         vessel.state.advance(update=update)
     update.save()
     vessel.save()
 
-    if mission_uuid:
-        return ('', 200)
+    # status code indicates if we matched
+    return ('', 200 if vessel.mission_uuid else 202)
 
-    # didn't match any missions, let the client know
-    return ('', 202)
 
 @app.route("/_display")
 def get_display_latest():

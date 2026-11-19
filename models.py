@@ -67,6 +67,14 @@ class ValidationError(Exception):
     def __init__(self, message):
         self.message = message
 
+# uuid conventions
+
+def short_uuid(uuid):
+    if not uuid:
+        return '?'
+    return uuid[:6] + '..' + uuid[-6:]
+
+
 # types
 
 class KTimeParts:
@@ -104,7 +112,7 @@ class KTimestamp:
         if time is None:
             raise ValueError('expected int or float, None provided')
         if isinstance(time, str):
-            time = self.parse(time, strict=True)
+            time = self.parse(time)
         elif not isinstance(time, (float, int)):
             raise ValueError(f'unexpected type: {type(time)}')
         self.time = float(time)
@@ -182,6 +190,10 @@ class Model:
             setattr(self, k, v)
         if not hasattr(self, 'uuid'):
             self.uuid = str(uuid4())
+
+    def __repr__(self):
+        retval = super().__repr__()
+        return retval[:-1] + ' (' + short_uuid(self.uuid) + ')>'
 
     @classmethod
     def iter_all(cls, **kwargs):
@@ -264,6 +276,10 @@ class Mission(Model):
         self.cur_step = int_or_none(row_obj.get('cur_step', 0))
         self.archived = row_obj.get('archived', False)
 
+    def __repr__(self):
+        retval = super().__repr__()
+        return retval[:-1] + ' (' + self.name + ')>'
+
     @property
     def start(self):
         return self._start
@@ -328,6 +344,12 @@ class Matcher(Model):
         if not any([self.vessel_name, self.soi_name]):
             raise ValueError('must provide one of vessel_name, soi_name')
 
+    def __repr__(self):
+        retval = super().__repr__()
+        return retval[:-1] + ' (vessel_name=' + repr(self.vessel_name) + \
+            ', soi_name=' + repr(self.soi_name) + ')>'
+
+
     def as_db_row(self):
         db_row = super().as_db_row()
         db_row.update({
@@ -377,8 +399,9 @@ class Matcher(Model):
 class MissionTransitionListener:
     def after_transition(self, event, source, target):
         logger.warning(f"mission transition {source.id} -> {target.id}")
+        raise Exception("below isn't being called; g isn't populated")
         if getattr(g, 'mission_uuid'):
-            MissionProgress.record(g.mission_uuid, g.in_game_time, target.id)
+            VesselProgress.record(g.mission_uuid, g.in_game_time, target.id)
 
 
 class VesselProgress(Model):
@@ -388,7 +411,7 @@ class VesselProgress(Model):
     in_game_time is the earliest that the vessel reached that milestone
     this allows for rollbacks checking IGT.
     '''
-    TABLENAME = 'mission_progress'
+    TABLENAME = 'vessel_progress'
     
     def __init__(self, row_obj):
         super().__init__(row_obj)
@@ -676,6 +699,6 @@ class Vessel(Model):
         return {
             'uuid': self.uuid,
             'igt_last_update': self.igt_last_update,
-            'state': self.state.configuration_values[0],
+            'state': self.state.configuration_values[0], # TODO This returns 'prelaunch'; does not update with latest state change
             'mission_uuid': self.mission_uuid,
         }

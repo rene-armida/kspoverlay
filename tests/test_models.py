@@ -93,11 +93,45 @@ def test_Mission_as_json_dict(app_ctx):
         'steps': [],
     } == actual
 
+def _timedelta_seconds(td):
+    '''
+    return microseconds precision float from a timedelta
+    '''
+    return td.seconds + (td.microseconds * .000001)
+
 def _update(vessel_name, soi_name, **kwargs):
-    kwargs['irl_time'] = datetime.now().astimezone()
+    epoch = datetime.fromisoformat('2026-11-19T07:31:22.406822-08:00')
+    if 'in_game_time' in kwargs:
+        diff = kwargs['in_game_time']
+        if not isinstance(diff, timedelta):
+            # reminder to ourselves when reverting
+            raise ValueError('specify in_game_time using timedelta')
+        kwargs['irl_time'] = epoch + diff
+        kwargs['in_game_time'] = _timedelta_seconds(diff)
+    else:
+        now = datetime.now().astimezone()
+        diff = now - epoch
+        kwargs['irl_time'] = epoch + diff
+        kwargs['in_game_time'] = _timedelta_seconds(diff)
     kwargs['vessel_name'] = vessel_name
     kwargs['soi_name'] = soi_name
     return models.Update(kwargs)
+
+def test_VesselMachine():
+    vm = models.VesselMachine()
+    assert vm.configuration_values[0] == 'prelaunch'
+    vm.advance(_update('test', 'Kerbin', situation='FLYING'))
+    assert vm.configuration_values[0] == 'launch'
+    # second update succeeds and doesn't change anything
+    vm.advance(_update('test', 'Kerbin', situation='FLYING'))
+    assert vm.configuration_values[0] == 'launch'
+    # invalid transition is ignored
+    vm.advance(_update('test', 'Eeloo', situation='LANDED'))
+    assert vm.configuration_values[0] == 'launch'
+    # valid transition accepted
+    vm.advance(_update('test', 'Kerbin', situation='ORBITING'))
+    assert vm.configuration_values[0] == 'home_orbit'
+
 
 @fixture
 def matcher_setup():
